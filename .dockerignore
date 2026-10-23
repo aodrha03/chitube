@@ -1,0 +1,11 @@
+# 빌드 컨텍스트에서 제외 (이미지엔 app/ 와 entrypoint.sh 만 들어감)
+# 특히 downloads/ 는 수 GB 가 될 수 있어 빼지 않으면 빌드할 때마다 통째로 전송됨 (시놀로지 빌드 지연/실패 원인)
+downloads/
+config/
+.env
+.git/
+.gitignore
+.DS_Store
+**/.DS_Store
+*.md
+docs/

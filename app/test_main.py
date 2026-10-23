@@ -1,0 +1,424 @@
+import json
+from main import BOT_RE, DEFAULTS, ffmpeg_cmd, next_check, normalize, resolve, safe_dir, sub_urls
+
+sub = {"url": "https://www.youtube.com/@abc/videos", "kinds": "videos,shorts,streams"}
+assert sub_urls(sub) == [f"https://www.youtube.com/@abc/{k}" for k in ("videos", "shorts", "streams")]
+assert sub_urls({"url": "https://www.youtube.com/@abc", "kinds": None}) == ["https://www.youtube.com/@abc/videos"]
+assert sub_urls({"url": "https://www.youtube.com/playlist?list=PL1", "kinds": "shorts"}) == ["https://www.youtube.com/playlist?list=PL1"]
+assert next_check({"last_checked": 1000, "interval_min": "5"}, DEFAULTS) == 1000 + 30 * 60  # 최소 30분 강제
+assert next_check({"last_checked": 1000, "interval_min": ""}, DEFAULTS) == 1000 + 360 * 60
+assert BOT_RE.search("ERROR: Sign in to confirm you're not a bot") and BOT_RE.search("HTTP Error 429: Too Many Requests")
+assert not BOT_RE.search("Video unavailable. This video is private")
+
+assert normalize("https://www.youtube.com/@abc") == "https://www.youtube.com/@abc/videos"
+assert normalize("https://www.youtube.com/@abc/") == "https://www.youtube.com/@abc/videos"
+assert normalize("https://www.youtube.com/@abc/shorts") == "https://www.youtube.com/@abc/shorts"
+assert normalize(" https://www.youtube.com/watch?v=x ") == "https://www.youtube.com/watch?v=x"
+
+s = {"codec": "h265", "crf": "28", "preset": "slow", "audio_bitrate": "128k"}
+c = ffmpeg_cmd("a.mkv", "a.mp4", s)
+assert c[-1] == "a.mp4" and "libx265" in c and "hvc1" in c and c[c.index("-crf") + 1] == "28"
+assert "hvc1" not in ffmpeg_cmd("a.mkv", "a.mp4", s | {"codec": "h264"})
+c = ffmpeg_cmd("a.mkv", "a.mp4", s | {"ratio": "70"}, vbit=1_000_000)
+assert c[c.index("-maxrate") + 1] == "700000" and c[c.index("-bufsize") + 1] == "1400000"
+assert "-maxrate" not in ffmpeg_cmd("a.mkv", "a.mp4", s | {"ratio": "70"})  # 길이 모르면(라이브) 상한 없음
+c = ffmpeg_cmd("a.ts", "a.mp4", s | {"codec": "copy"}, tags={"title": "라이브", "description": None})
+assert c[c.index("-metadata") + 1] == "title=라이브" and c.count("-metadata") == 1  # 빈 태그는 빼고 넣음
+from main import ver
+assert ver("2026.08.19") == (2026, 8, 19) and ver("deno 2.9.7 (stable, aarch64)") == (2, 9, 7)
+assert ver("v2.10.0") > ver("deno 2.9.7") and ver("2026.10.1") > ver("2026.08.19")
+assert c[c.index("-c:v") + 1] == "copy" and "-crf" not in c and c[c.index("-c:a") + 1] == "aac"
+
+# 기본 → 유튜버 → 영상 순서로 덮어쓰기, 빈 값은 무시
+r = resolve(DEFAULTS, {"quality": "small", "max_height": "720", "folder": "키즈"}, {"max_height": ""})
+assert (r["codec"], r["crf"], r["ratio"], r["max_height"], r["folder"]) == ("h265", "26", "70", "720", "키즈")
+r = resolve(DEFAULTS, {"quality": "original", "max_height": "720"})
+assert (r["codec"], r["max_height"]) == ("none", "0")  # 원본 = 최고 해상도 + 재압축 없음
+r = resolve(DEFAULTS | {"quality": "custom", "codec": "h264", "crf": "20"})
+assert (r["codec"], r["crf"]) == ("h264", "20")
+
+# 저장 경로: 상대 경로 → 다운로드 폴더 아래, '/' 로 시작 → 서버 절대 경로 (컨테이너의 /host 아래)
+import tempfile, main as _m
+_m.HOST = tempfile.mkdtemp()  # compose 의 서버 루트 연결(/:/host) 대신
+assert safe_dir("") == "/downloads" and safe_dir("a/b") == "/downloads/a/b"
+assert safe_dir("/volume1/video/YouTube") == _m.HOST + "/volume1/video/YouTube"
+for bad in ("..", "../etc", "a/../../x", "/../etc", "/a/../../etc"):
+    try:
+        safe_dir(bad)
+        raise AssertionError(bad)
+    except ValueError:
+        pass
+# 점검: 놓친 영상 판정 (유튜브 목록은 최신순)
+from datetime import datetime
+from main import audit_due, find_missing, next_audit
+ids = ["n1", "n2", "a", "n3", "b", "old1", "old2"]
+assert find_missing(ids, {"a", "b"}, 15) == ["n1", "n2", "n3"]  # 받은 것 중 가장 오래된 b 보다 새로운 것만
+assert find_missing(ids, set(), 3) == ["n1", "n2", "a"]          # 기록 없으면 최신 limit 개
+assert find_missing(ids, set(ids), 15) == []
+now = datetime(2026, 10, 18, 10, 0)
+four = datetime(2026, 10, 18, 4, 0).timestamp()
+assert audit_due([4, 16], 0, now) and audit_due([4, 16], four - 1, now)
+assert not audit_due([4, 16], four, now) and not audit_due([], 0, now)
+assert next_audit([4, 16], now) == datetime(2026, 10, 18, 16, 0).timestamp()
+assert next_audit([4], now) == datetime(2026, 10, 19, 4, 0).timestamp() and next_audit([], now) is None
+# Plex 에피소드 번호: 같은 날 영상은 순번으로 구분, 다시 받으면 기존 번호 유지
+import tempfile
+from main import episode_code
+d = tempfile.mkdtemp()
+assert episode_code(d, "20180425", "A") == "s2018e042501"
+for n in ("s2018e042501 - 2018-04-25 - x [A]", "s2018e042502 - 2018-04-25 - y [B]", "s2018e060501 - 2018-06-05 - z [C]"):
+    open(f"{d}/채널 - {n}.mp4", "w").close()
+assert episode_code(d, "20180425", "B") == "s2018e042502"   # 다시 받기
+assert episode_code(d, "20180425", "N") == "s2018e042503"   # 같은 날 새 영상
+assert episode_code(d, "20180605", "N") == "s2018e060502" and episode_code(d, "20181231", "N") == "s2018e123101"
+# 설정 검증: 잘못된 값이 저장되면 작업 스레드가 int() 에서 멈췄음
+from main import bad_setting
+assert bad_setting("daily_limit", "") and bad_setting("daily_limit", "abc") and bad_setting("concurrency", "21")
+assert not bad_setting("daily_limit", "100") and not bad_setting("sleep_requests", "0.5")
+assert bad_setting("codec", "vp9") and bad_setting("audio_bitrate", "abc") and not bad_setting("audio_bitrate", "128k")
+assert bad_setting("rate_limit", "fast") and not bad_setting("rate_limit", "") and not bad_setting("rate_limit", "10M")
+assert bad_setting("folder", "../x") and not bad_setting("folder", "YouTube") and not bad_setting("audit_hours", "")
+assert bad_setting("audit_hours", "새벽") and not bad_setting("audit_hours", "4,16") and not bad_setting("unknown", "x")
+# 자막: 직접 만든 자막 전부 + 자동 생성 원어(겹치면 생략), 자동 번역은 안 받음
+from main import subtitle_langs
+raw = {"subtitles": {"ko": [], "en": [], "live_chat": []}, "automatic_captions": {"en-orig": [], "fr": [], "de": []}, "language": "en"}
+assert subtitle_langs(raw, "all") == ["ko", "en"] and subtitle_langs(raw, "manual") == ["ko", "en"] and subtitle_langs(raw, "off") == []
+assert subtitle_langs({"automatic_captions": {"ja-orig": [], "ko": []}}, "all") == ["ja-orig"]
+assert subtitle_langs({"automatic_captions": {"ja": [], "ko": []}, "language": "ja"}, "all") == ["ja"]
+assert subtitle_langs({"automatic_captions": {"ja": []}, "language": "ko"}, "all") == [] and subtitle_langs({}, "all") == []
+# nfo: Jellyfin 이 읽는 형식
+import os, xml.etree.ElementTree as ET
+from main import write_nfo
+d = tempfile.mkdtemp(); os.makedirs(f"{d}/채널/Season 2023")
+v = f"{d}/채널/Season 2023/채널 - s2023e040102 - 2023-04-01 - 제목 & <특수> [abc].mp4"
+write_nfo(v, {"channel": "채널", "upload_date": "20230401", "description": "설명 <b>", "duration": 125}, "제목 & <특수>", "abc")
+e = ET.parse(v[:-4] + ".nfo").getroot()
+assert (e.find("title").text, e.find("season").text, e.find("episode").text, e.find("aired").text, e.find("plot").text, e.find("runtime").text, e.find("uniqueid").text) == ("제목 & <특수>", "2023", "40102", "2023-04-01", "설명 <b>", "2", "abc")
+assert ET.parse(f"{d}/채널/tvshow.nfo").getroot().find("title").text == "채널"
+# 하드웨어 인코딩: 장치별 명령, 없으면 CPU
+import main
+from main import encoder_for
+base = DEFAULTS | {"codec": "h265", "crf": "26", "ratio": "70"}
+c = ffmpeg_cmd("a", "b.mp4", base, vbit=1_000_000, hw="nvenc")
+assert "hevc_nvenc" in c and c[c.index("-cq") + 1] == "26" and c[c.index("-maxrate") + 1] == "700000" and c[c.index("-preset") + 1] == "p4"
+c = ffmpeg_cmd("a", "b.mp4", base | {"codec": "h264"}, vbit=1_000_000, hw="vaapi")
+assert c.index("-vaapi_device") < c.index("-i") and "h264_vaapi" in c and c[c.index("-b:v") + 1] == "700000" and "hvc1" not in c
+assert c[c.index("-vf") + 1] == "format=nv12,hwupload"
+assert "-qp" in ffmpeg_cmd("a", "b.mp4", base, hw="vaapi")  # 길이 모르는 라이브는 고정 화질
+assert "libx265" in ffmpeg_cmd("a", "b.mp4", base) and "-vaapi_device" not in ffmpeg_cmd("a", "b.mp4", base)
+main.HW.clear()
+assert encoder_for(base | {"hwaccel": "auto"}) == "cpu" and encoder_for(base | {"hwaccel": "nvenc"}) == "cpu"  # GPU 없는 제온
+main.HW.update({"nvenc": {"h264"}, "vaapi": {"h264", "h265"}})
+assert encoder_for(base | {"hwaccel": "auto"}) == "vaapi"           # 엔비디아가 h265 못 하면 인텔
+assert encoder_for(base | {"hwaccel": "auto", "codec": "h264"}) == "nvenc"
+assert encoder_for(base | {"hwaccel": "cpu"}) == "cpu"
+main.HW.clear()
+# 영상별 폴더 / 치지직 주소 판별
+from main import outtmpl, show_dir, CHZZK_CH_RE, sub_urls as su
+t = outtmpl("s2026e101601", True)
+assert t.count("[%(id)s]") == 2 and t.endswith(".%(ext)s") and "/Season %(upload_date>%Y)s/" in t  # 폴더 + 파일
+assert outtmpl("x", False).count("[%(id)s]") == 1
+c = outtmpl("", True, chzzk=True)  # 치지직: 스트리머/날짜 - 제목/날짜 - 제목 [ID].mp4 (시즌 없음, ID 는 파일에만)
+assert "Season" not in c and c.count("[%(id)s]") == 1 and c.count("%(upload_date>%Y-%m-%d)s - %(fname_title).100B") == 2
+# aria2c 제어 파일: 조각 1MB × 10개(전체 9.5MB) 중 0·1·9번 완료 → 받은 양 3MB
+import struct
+ctl = os.path.join(tempfile.mkdtemp(), "x.aria2")
+with open(ctl, "wb") as fh:
+    fh.write(struct.pack(">HII", 1, 0, 0) + struct.pack(">IQQI", 1 << 20, 9_961_472, 0, 2) + bytes([0b11000000, 0b01000000]) + struct.pack(">I", 0))
+assert main.aria2_done(ctl) == (3 << 20, 9_961_472), main.aria2_done(ctl)
+from main import plain_name  # 파일 이름용: 이모지(ZWJ·국기·피부색 포함)만 빼고 한글·기호는 그대로
+assert plain_name("고양이 😂🐱 영상 👨‍👩‍👧 🇰🇷 Part 1!") == "고양이 영상 Part 1!", plain_name("고양이 😂🐱 영상 👨‍👩‍👧 🇰🇷 Part 1!")
+assert plain_name("🔥🔥") == "제목 없음" and plain_name("( ܸ ⩌⩊⩌ ܸ )") == "( ܸ ⩌⩊⩌ ܸ )"
+assert show_dir("/d/Ch/Season 2026/N [a]/N [a].mp4") == "/d/Ch" and show_dir("/d/Ch/Season 2026/N [a].mp4") == "/d/Ch"
+cid = "7ce8032370ac5121dcabce7bad375ced"
+for u in (f"https://chzzk.naver.com/{cid}", f"https://chzzk.naver.com/live/{cid}", f"https://chzzk.naver.com/{cid}/videos"):
+    assert CHZZK_CH_RE.match(u).group(1) == cid
+assert not CHZZK_CH_RE.match("https://chzzk.naver.com/video/15297533")  # 다시보기 하나는 yt-dlp 가 직접
+assert su({"url": f"https://chzzk.naver.com/{cid}", "kinds": "videos,shorts,streams"}) == [
+    f"https://chzzk.naver.com/{cid}", f"https://chzzk.naver.com/{cid}/live"]  # 숏츠 없음
+assert bad_setting("video_folder", "2") and not bad_setting("video_folder", "1")
+# 탭(플랫폼)별 기본값: 공통 → 탭 → 채널 → 영상 순, 비우면 다음 단계로
+from main import platform_of
+assert platform_of("https://chzzk.naver.com/video/1") == "chzzk" and platform_of("https://youtu.be/x") == "youtube"
+r = resolve(DEFAULTS, {"quality": "", "max_height": "720", "folder": "/volume1/video/Chzzk"}, {"folder": ""}, {})
+assert (r["max_height"], r["folder"]) == ("720", "/volume1/video/Chzzk")
+assert bad_setting("chzzk_folder", "") is None and bad_setting("chzzk_quality", "nope") and bad_setting("youtube_max_height", "abc")
+assert not bad_setting("youtube_folder", "/volume1/video/YouTube") and bad_setting("youtube_folder", "/../etc")
+print("ok")
+
+# 봇 차단 신호 → 작업은 대기열로 되돌리고 전체 일시정지 (실제 유튜브 대신 가짜 YoutubeDL 로 확인)
+import os, tempfile, main, yt_dlp
+main.DB = os.path.join(tempfile.mkdtemp(), "t.db")
+main.init_db()
+
+
+class Blocked:
+    def __init__(self, *a): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+    def extract_info(self, *a, **k): raise yt_dlp.utils.DownloadError("ERROR: [youtube] x: Sign in to confirm you're not a bot")
+
+
+real, yt_dlp.YoutubeDL = yt_dlp.YoutubeDL, Blocked
+main.q("INSERT INTO jobs(video_id,url,title,opts) VALUES('x','u','t','{}')")
+job = main.claim(0, 1, 1)
+main.run_job(job, main.job_settings(job))
+assert main.q("SELECT status FROM jobs")[0]["status"] == "queued" and main.paused()
+# 플랫폼별 동시 개수: 치지직 한도 1 이면 두 번째 치지직은 못 가져오고, 유튜브 한도 0 이면 유튜브도 안 가져옴
+main.q("INSERT INTO jobs(video_id,url,title,opts) VALUES('c1','https://chzzk.naver.com/video/1','c','{}'),"
+       "('c2','https://chzzk.naver.com/video/2','c','{}')")
+assert main.claim(0, 0, 1)["video_id"] == "c1" and main.claim(0, 0, 1) is None
+assert main.claim(0, 1, 1)["video_id"] == "x" and main.claim(0, 1, 1) is None and main.claim(0, 1, 2)["video_id"] == "c2"
+main.q("DELETE FROM jobs WHERE video_id IN ('c1','c2')")
+main.q("UPDATE jobs SET status='queued' WHERE video_id='x'")
+main.STATE["paused_until"] = 0
+main.q("INSERT INTO subs(url,name) VALUES('https://www.youtube.com/@x','x')")
+main.check_sub(main.q("SELECT * FROM subs")[0], main.settings() | {"sub_fetch_limit": "1"})
+assert main.paused() and "not a bot" in main.q("SELECT last_error FROM subs")[0]["last_error"]
+yt_dlp.YoutubeDL = real
+print("bot ok")
+
+# 기존 영상 전부 받기: 목록(최신순)을 뒤집어 넣어 오래된 영상이 먼저 받아짐
+real_list, main.list_entries = main.list_entries, lambda u, limit=None: ([{"id": "new"}, {"id": "old"}], "x", "videos")
+main.backfill(main.q("SELECT * FROM subs")[0])
+assert [r["video_id"] for r in main.q("SELECT video_id FROM jobs WHERE video_id IN ('new','old') ORDER BY id")] == ["old", "new"]
+main.list_entries = real_list
+print("backfill ok")
+
+# 일괄 처리: 다시 받기는 오류·취소만 (완료된 건 파일을 지우므로 제외), 삭제는 받는 중 제외
+main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('be','u','t','{}','error'),('bd','u','t','{}','done'),('bg','u','t','{}','downloading')")
+ids = {r["video_id"]: r["id"] for r in main.q("SELECT id, video_id FROM jobs WHERE video_id IN ('be','bd','bg')")}
+assert main.bulk(main.Bulk(ids=list(ids.values()), action="retry"))["done"] == 1
+st = {r["video_id"]: r["status"] for r in main.q("SELECT video_id, status FROM jobs WHERE video_id IN ('be','bd','bg')")}
+assert st == {"be": "queued", "bd": "done", "bg": "downloading"}, st
+assert main.bulk(main.Bulk(ids=list(ids.values()), action="delete"))["done"] == 2
+assert [r["video_id"] for r in main.q("SELECT video_id FROM jobs WHERE video_id IN ('be','bd','bg')")] == ["bg"]
+assert main.jobs(status="error", search="zz-없는제목")["jobs"] == []
+print("bulk ok")
+
+# 대기열 페이지: 받을 순서(먼저 넣은 것부터), 페이지마다 per 개
+main.q("INSERT INTO jobs(video_id,url,title,opts) VALUES('q1','u','t','{}'),('q2','u','t','{}'),('q3','u','t','{}')")
+order = [r["video_id"] for r in main.q("SELECT video_id FROM jobs WHERE status='queued' AND title LIKE '%t%' ORDER BY id")]
+p1, p2 = (main.jobs(status="queued", search="t", per=2, page=n) for n in (1, 2))
+assert [j["video_id"] for j in p1["jobs"]] == order[:2] and [j["video_id"] for j in p2["jobs"]] == order[2:4]
+assert p1["total"] == len(order)
+# AV1 고효율: SVT-AV1 10비트, 프리셋 이름 → 숫자 (fast = 8, 메모리 적게)
+a = main.ffmpeg_cmd("a.mkv", "a.mp4", main.resolve(main.settings(), {"quality": "av1"}))
+assert "libsvtav1" in a and a[a.index("-preset") + 1] == "8" and a[a.index("-crf") + 1] == "46" and "yuv420p10le" in a and "hvc1" not in a
+# 맨 앞으로: 나중에 넣은 영상이라도 먼저 받음
+last = main.q("SELECT id, video_id FROM jobs WHERE status='queued' ORDER BY id DESC LIMIT 1")[0]
+main.bulk(main.Bulk(ids=[last["id"]], action="top"))
+assert main.claim(0, 99, 99)["video_id"] == last["video_id"]
+# 퀵싱크 AV1 고정 화질: qp 는 0~255 단위 → CRF 46 은 184
+_, v = main.encode_args(main.resolve(main.settings(), {"quality": "av1"}), 0, "vaapi")
+assert v[v.index("-qp") + 1] == "184" and "av1_vaapi" in v
+# 유튜브 하루 한도는 치지직 완료를 세지 않음
+n = main.done_today()
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,finished) VALUES('cz-done','https://chzzk.naver.com/video/9','t','{}','done',?)", (main.time.time(),))
+assert main.done_today() == n
+# 끊긴 생방송: 녹화분 보존(.part → 완성 이름), 방송이 이어지면 '-p2' 로 이어서 녹화, 직접 중지하면 안 이어짐
+real_out, main.OUT = main.OUT, tempfile.mkdtemp()
+part = os.path.join(main.OUT, "a", "녹화 [chzzk-live-7].mp4.part")
+os.makedirs(os.path.dirname(part))
+with open(part, "wb") as fh:
+    fh.write(b"\0" * 2_000_000)
+assert main.keep_partial("chzzk-live-7", {"folder": ""}) == part[:-5] and os.path.exists(part[:-5])
+main.OUT = real_out
+real_live, main.chzzk_live = main.chzzk_live, lambda cid: [{"id": "chzzk-live-7"}]
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live) VALUES('chzzk-live-7','https://chzzk.naver.com/live/" + "a" * 32 + "','방송','{}','error',1)")
+lj = main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-7'")[0]
+main.STOPPED.add(lj["id"])
+main.continue_live(lj)
+assert not main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-7-p2'")  # 직접 중지 → 안 이어짐
+main.continue_live(lj)
+assert main.q("SELECT live, status FROM jobs WHERE video_id='chzzk-live-7-p2'") == [{"live": 1, "status": "queued"}]
+main.continue_live(main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-7-p2'")[0])
+assert main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-7-p3'")  # p2 도 끊기면 p3
+assert main.q("SELECT cut FROM jobs WHERE video_id='chzzk-live-7'")[0]["cut"]  # 끊긴 시각 기록 → 화면 표시
+assert [p["video_id"] for p in main.job(lj["id"])["parts"]] == ["chzzk-live-7", "chzzk-live-7-p2", "chzzk-live-7-p3"]
+main.chzzk_live = real_live
+# 성인 인증 실패: 자동 재시도 한도로 막고 이어서 녹화도 안 함
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live,error) VALUES('chzzk-live-8','https://chzzk.naver.com/live/" + "a" * 32 + "','성인','{}','error',1,?)", (main.ADULT_MSG,))
+main.continue_live(main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-8'")[0])
+assert not main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-8-p2'")
+assert main.ADULT_RE.search("ERROR: [chzzk:video] 1: Failed to download MPD manifest: HTTP Error 401: Unauthorized")
+# 생방송 녹화로 받은 방송의 다시보기는 건너뜀 (liveOpenDate == 녹화 때 openDate)
+main.q("UPDATE jobs SET live_open='2026-10-21 15:48:03' WHERE video_id='chzzk-live-7'")
+real_api, main.chzzk_api = main.chzzk_api, lambda path: {"liveOpenDate": "2026-10-21 15:48:03" if path.endswith("/901") else "2026-10-20 10:00:00"}
+assert main.recorded_replay("a" * 32, {"videoNo": 901, "videoType": "REPLAY"})
+assert not main.recorded_replay("a" * 32, {"videoNo": 902, "videoType": "REPLAY"})
+assert not main.recorded_replay("a" * 32, {"videoNo": 903, "videoType": "UPLOAD"})
+assert not main.recorded_replay("b" * 32, {"videoNo": 904, "videoType": "REPLAY"})  # 녹화 없는 채널은 상세 조회 안 함
+main.chzzk_api = real_api
+# 쿠키: yt-dlp 엔 복사본만 줌 → 끝날 때 다시 써도 원본(다시 로그인한 새 쿠키)은 그대로
+ck = main.COOKIE_FILES["youtube"]
+had = os.path.exists(ck)
+if not had:
+    with open(ck, "w") as fh:
+        fh.write("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tnew\n")
+o = main.base_opts(main.settings(), "https://www.youtube.com/watch?v=x")
+assert o["cookiefile"] != ck
+with open(o["cookiefile"], "w") as fh:
+    fh.write("옛 쿠키")
+assert "옛 쿠키" not in open(ck).read()
+if not had:
+    os.remove(ck)
+# 생방송 녹화하면서 압축은 TS 로 써서 hvc1 태그를 빼야 ffmpeg 가 거부하지 않음
+assert "hvc1" not in main.encode_args(main.resolve(main.settings(), {"quality": "standard"}), 0, "nvenc", ts=True)[1]
+assert "hvc1" in main.encode_args(main.resolve(main.settings(), {"quality": "standard"}), 0, "nvenc")[1]
+# 봇 감지로 쉬는 중엔 유튜브 다운로드 막힘 (확인하면 force 로 재개)
+main.STATE["paused_until"] = main.time.time() + 60
+try:
+    main.download(main.Url(url="https://www.youtube.com/watch?v=zzz"))
+    raise AssertionError("막혀야 함")
+except main.HTTPException as e:
+    assert e.status_code == 409
+main.STATE["paused_until"] = 0
+# 이어서 녹화 파일 ID: 유튜브 ID(11자) 자체가 '-p숫자'로 끝나도 원래 ID 로 봄
+assert main.part_of("chzzk-live-7-p3") == ("chzzk-live-7", 3) and main.part_of("chzzk-live-7") == ("chzzk-live-7", 1)
+assert main.part_of("abcdefgh-p1") == ("abcdefgh-p1", 1) and main.part_of("abcdefgh-p1-p2") == ("abcdefgh-p1", 2)
+assert main.low_disk(main.settings() | {"min_free_gb": "99999999"}) and not main.low_disk(main.settings() | {"min_free_gb": "0"})
+l = main.load()
+assert 0 <= l["cpu"] <= 100 and l["mem_total"] > l["mem"] > 0
+try:  # 미리보기는 받는 중인 영상만
+    main.job_preview(main.q("SELECT id FROM jobs WHERE status='done' LIMIT 1")[0]["id"]); raise AssertionError
+except main.HTTPException as e:
+    assert e.status_code == 404
+# 녹화 조각 합치기: 두 조각 → 1번째 자리에 한 파일, 나머지 조각 파일·목록 정리
+md = tempfile.mkdtemp()
+for i in (1, 2):
+    main.subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=s=160x90:d=2", "-f", "lavfi", "-i", "sine=d=2",
+                         "-c:v", "libx264", "-c:a", "aac", "-shortest", f"{md}/rec{i}.mp4"], check=True)
+for vid, i in (("chzzk-live-9", 1), ("chzzk-live-9-p2", 2)):
+    main.q("INSERT INTO jobs(video_id,url,title,opts,status,live,filepath,started) VALUES(?,?,?,?,?,?,?,?)",
+           (vid, "https://chzzk.naver.com/live/" + "a" * 32, "합치기", "{}", "done", 1, f"{md}/rec{i}.mp4", i))
+mj = main.q("SELECT id FROM jobs WHERE video_id='chzzk-live-9'")[0]["id"]
+assert main.merge_parts(mj) == {"merged": 2}
+assert 3.8 < main.probe_streams(f"{md}/rec1.mp4")[1] < 4.3 and not os.path.exists(f"{md}/rec2.mp4")
+assert not main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-9-p2'")
+# 정렬: 허용 목록 밖 값은 기본 정렬 (SQL 에 그대로 넣지 않음)
+assert main.jobs(sort="title; DROP TABLE jobs")["jobs"] and main.jobs(sort="size")["jobs"]
+# 백업 → 복원: 구독 추가, 설정 적용, 잘못된 값은 건너뜀, 다른 파일은 거부
+bk = json.loads(main.backup().body)
+assert "settings" in bk and "subs" in bk
+r = main.restore({"app": "docker_youtube", "settings": {"crf": "30", "concurrency": "abc"},
+                  "subs": [{"url": "https://www.youtube.com/@restore_test", "name": "복원"}]})
+assert r == {"settings": 1, "subs": 1} and main.settings()["crf"] == "30"
+assert main.q("SELECT enabled FROM subs WHERE url='https://www.youtube.com/@restore_test'")[0]["enabled"] == 1
+try:
+    main.restore({"settings": {}}); raise AssertionError
+except main.HTTPException as e:
+    assert e.status_code == 400
+# 미리보기: 받는 중인 파일을 다시 인코딩 없이(같은 화질) 5초 이상 잘라 줌
+pd = os.path.join(main.OUT, "pv_unit"); os.makedirs(pd, exist_ok=True)
+main.subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=320x180:d=30", "-c:v", "libx264", "-g", "30",
+                     "-movflags", "+frag_keyframe+empty_moov", "-f", "mp4", f"{pd}/t [pvunit01234].mp4.part"], check=True)
+main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('pvunit01234','https://www.youtube.com/watch?v=pvunit01234','t',?,'downloading')",
+       (json.dumps({"folder": "pv_unit"}),))
+clip = main.job_preview(main.q("SELECT id FROM jobs WHERE video_id='pvunit01234'")[0]["id"]).body
+assert len(clip) > 10_000 and b"avc1" in clip[:3000]  # 다시 인코딩 없이 원본 코덱 그대로
+main.shutil.rmtree(pd)
+# 지워진 파일은 file_ok=False, 저장된 썸네일 파일은 /thumb 로 (치지직 생방송 썸네일 주소 만료 대비)
+td = tempfile.mkdtemp()
+open(f"{td}/v [thumbtest01].mp4", "wb").close(); open(f"{td}/v [thumbtest01].jpg", "wb").write(b"jpg")
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,filepath) VALUES('thumbtest01','u','t','{}','done',?)", (f"{td}/v [thumbtest01].mp4",))
+tj = main.q("SELECT id FROM jobs WHERE video_id='thumbtest01'")[0]["id"]
+assert main.job(tj)["file_ok"] and main.job_thumb(tj).path.endswith(".jpg")
+os.remove(f"{td}/v [thumbtest01].mp4")
+assert not main.job(tj)["file_ok"]
+# 예전 버그로 '오류'가 된 녹화(파일 있음)는 시작할 때 완료로, 덮어써진 시작 시각은 생성 시각으로
+open(f"{td}/r [chzzk-live-77].mp4", "wb").close()
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live,filepath,created,started,cut,error) VALUES('chzzk-live-77','u','t','{}','error',1,?,100,500,150,'x')",
+       (f"{td}/r [chzzk-live-77].mp4",))
+main.init_db()
+assert main.q("SELECT status, started, error FROM jobs WHERE video_id='chzzk-live-77'") == [{"status": "done", "started": 100, "error": None}]
+# 형식이 다른 조각(원본 H.264 + 압축본 H.265): 그냥은 409, reencode 면 다시 압축해서 한 파일로
+for i, cv in ((1, "libx264"), (2, "libx265")):
+    main.subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=s={'160x90' if i == 1 else '320x180'}:d=2", "-f", "lavfi", "-i", "sine=d=2",
+                         "-c:v", cv, "-c:a", "aac", "-shortest", f"{md}/mix{i}.mp4"], check=True)
+for vid, i in (("chzzk-live-88", 1), ("chzzk-live-88-p2", 2)):
+    main.q("INSERT INTO jobs(video_id,url,title,opts,status,live,filepath,started) VALUES(?,?,?,?,?,?,?,?)",
+           (vid, "https://chzzk.naver.com/live/" + "a" * 32, "섞임", "{}", "done", 1, f"{md}/mix{i}.mp4", i))
+xj = main.q("SELECT id FROM jobs WHERE video_id='chzzk-live-88'")[0]["id"]
+try:
+    main.merge_parts(xj); raise AssertionError
+except main.HTTPException as e:
+    assert e.status_code == 409
+assert main.merge_parts(xj, reencode=True) == {"started": True}
+for _ in range(120):
+    if not main.MERGING: break
+    main.time.sleep(0.5)
+st, dur = main.probe_streams(f"{md}/mix1.mp4")
+assert [x[:2] for x in st] == [("video", "hevc"), ("audio", "aac")] and st[0][2:] == (160, 90) and 3.8 < dur < 4.3, (st, dur)
+assert not os.path.exists(f"{md}/mix2.mp4") and not main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-88-p2'")
+# 끝난 생방송 녹화는 '다시 받기'로 지워지지 않음 (다시 녹화 불가 → 녹화만 사라졌음)
+rec = f"{td}/live [chzzk-live-99].mp4"; open(rec, "wb").close()
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live,filepath) VALUES('chzzk-live-99','u','t','{}','done',1,?)", (rec,))
+lj99 = main.q("SELECT id FROM jobs WHERE video_id='chzzk-live-99'")[0]["id"]
+try:
+    main.redownload(lj99); raise AssertionError
+except main.HTTPException as e:
+    assert e.status_code == 400
+assert os.path.exists(rec) and main.q("SELECT status FROM jobs WHERE id=?", (lj99,))[0]["status"] == "done"
+assert main.bulk(main.Bulk(ids=[lj99], action="retry")) == {"done": 0}
+# 받는 중 예상 못 한 오류 → 그 영상이 '다운로드 중'으로 멈추지 않고 '오류' (점검이 다시 시도)
+main.add_entries([{"id": "crashtest01", "url": "https://www.youtube.com/watch?v=crashtest01", "title": "t"}], "videos")
+main.q("UPDATE jobs SET pri=99 WHERE video_id='crashtest01'")
+main.q("INSERT OR REPLACE INTO settings VALUES('concurrency','20')")  # 앞 테스트가 남긴 '받는 중' 영상 때문에 동시 개수가 꽉 차지 않게
+real_run, main.run_job = main.run_job, lambda job, s: (_ for _ in ()).throw(RuntimeError("boom"))
+try:
+    main.worker_step(0, 0); raise AssertionError
+except RuntimeError:
+    pass
+main.run_job = real_run
+assert main.q("SELECT status, error FROM jobs WHERE video_id='crashtest01'") == [{"status": "error", "error": "내부 오류: boom"}]
+# 재시작으로 남은 합치기 임시 파일 정리
+mt = os.path.join(main.OUT, "x.mp4.merging.mp4"); open(mt, "wb").close()
+main.sweep_temp()
+assert not os.path.exists(mt)
+# 점검 결과: 그 뒤에 고쳐진 것(완료로 바뀜·파일 다시 생김)은 목록에서 빠짐
+main.q("INSERT INTO audits(started, finished, result) VALUES(?,?,?)", (main.time.time(), main.time.time(), json.dumps(
+    {"subs": [], "missing_added": 0, "files_checked": 1, "retried": 0,
+     "file_issues": [{"id": tj, "title": "t", "issue": "파일 없음 (삭제/이동됨)"}, {"id": lj99, "title": "t", "issue": "파일 없음 (삭제/이동됨)"}],
+     "gave_up": [{"id": lj99, "title": "t", "error": "x"}, {"id": main.q("SELECT id FROM jobs WHERE video_id='crashtest01'")[0]["id"], "title": "c", "error": "x"}]})))
+ar = main.audit()["history"][0]["result"]
+assert [i["id"] for i in ar["file_issues"]] == [tj]  # tj 는 파일이 지워진 채, lj99 는 파일 있음 → 빠짐
+assert [g["title"] for g in ar["gave_up"]] == ["c"]  # lj99 는 완료 → 빠짐, crashtest01 은 아직 오류
+# 원본이 지워진 영상을 '다시 받기' → 실패해도 기존 파일은 그대로 (예전엔 먼저 지워서 영영 잃었음)
+kd = os.path.join(main.OUT, "keep_unit"); os.makedirs(kd, exist_ok=True)
+kv = f"{kd}/v [keepunit001].mp4"
+open(kv, "wb").write(b"old"); open(f"{kd}/v [keepunit001].jpg", "wb").write(b"jpg")
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,filepath) VALUES('keepunit001','https://www.youtube.com/watch?v=keepunit001','t',?,'done',?)",
+       (json.dumps({"folder": "keep_unit"}), kv))
+kj = main.q("SELECT id FROM jobs WHERE video_id='keepunit001'")[0]["id"]
+main.redownload(kj)
+assert not os.path.exists(kv) and os.path.exists(kv + ".keep")  # 비켜 둠
+real_attempt = main.yt_dlp.YoutubeDL.extract_info
+main.yt_dlp.YoutubeDL.extract_info = lambda self, *a, **k: (_ for _ in ()).throw(main.yt_dlp.utils.DownloadError("ERROR: [youtube] keepunit001: Video unavailable. This video has been removed by the uploader"))
+main.run_job(main.claim(0, 20, 20) if False else main.q("SELECT * FROM jobs WHERE id=?", (kj,))[0], main.job_settings(main.q("SELECT * FROM jobs WHERE id=?", (kj,))[0]))
+main.yt_dlp.YoutubeDL.extract_info = real_attempt
+r = main.q("SELECT status, filepath, error FROM jobs WHERE id=?", (kj,))[0]
+assert r["status"] == "done" and r["filepath"] == kv and open(kv, "rb").read() == b"old" and "기존 파일 그대로" in r["error"], r
+assert os.path.exists(f"{kd}/v [keepunit001].jpg") and not main.keep_files(kv)
+# 다시 받기 대기 중에 목록에서 삭제해도 파일은 되돌아옴
+main.redownload(kj); main.delete_job(kj)
+assert os.path.exists(kv) and not main.keep_files(kv)
+main.shutil.rmtree(kd)
+# 백업 복원: 손으로 고친 이상한 값은 건너뜀 (예전엔 서버 오류 + 이상한 구독이 반쯤 저장됨)
+n0 = main.q("SELECT COUNT(*) n FROM subs")[0]["n"]
+r = main.restore({"app": "chitube", "settings": ["x"], "subs": [{"url": 123}, {"url": ["a"]}, "문자", None, {"url": "file:///etc/passwd"},
+                  {"url": "https://www.youtube.com/@fuzz_ok", "quality": "evil", "folder": "../../etc", "max_height": "abc", "kinds": 5, "interval_min": "1", "enabled": "x"}]})
+assert r == {"settings": 0, "subs": 1} and main.q("SELECT COUNT(*) n FROM subs")[0]["n"] == n0 + 1
+assert main.q("SELECT quality, folder, max_height, kinds, interval_min, enabled FROM subs WHERE url='https://www.youtube.com/@fuzz_ok'") == \
+    [{"quality": None, "folder": None, "max_height": None, "kinds": "videos", "interval_min": None, "enabled": 1}]
+# 오류 숨기기: 확인한 오류는 상태 화면·카드에서 빠지고, 다시 받으면(claim) 새 오류로 다시 보임
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,error) VALUES('errseen0001','https://www.youtube.com/watch?v=errseen0001','t','{}','error','x')")
+ej = main.q("SELECT id FROM jobs WHERE video_id='errseen0001'")[0]["id"]
+new = lambda: [r["id"] for r in main.q(f"SELECT id FROM jobs WHERE {main.NEW_ERR}")]
+assert ej in new() and main.errors_seen(main.Ids(ids=[ej])) == {"hidden": 1} and ej not in new()
+assert main.q("SELECT err_seen FROM jobs WHERE id=?", (ej,))[0]["err_seen"] == 1
+main.q("UPDATE jobs SET status='queued', pri=999 WHERE id=?", (ej,))
+assert main.claim(0, 99, 99)["id"] == ej and main.q("SELECT err_seen FROM jobs WHERE id=?", (ej,))[0]["err_seen"] == 0
+main.q("UPDATE jobs SET status='error', error='y' WHERE id=?", (ej,))
+assert ej in new() and main.errors_seen(main.Ids()) ["hidden"] >= 1 and not new()
+print("queue page ok")

@@ -1,0 +1,5 @@
+# 줄 끝을 항상 LF 로 (윈도우 git 이 CRLF 로 바꾸면 리눅스 컨테이너의 시작 스크립트가 "Bad fd number" 로 멈춤)
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary

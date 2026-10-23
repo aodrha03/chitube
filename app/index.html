@@ -1,0 +1,1275 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>치튜브 — 유튜브 · 치지직 다운로더</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='.5' y='.5' width='15' height='15' rx='4' fill='%231c1c22' stroke='%23ff4d6d'/><path d='M8 3.5v6M5 7l3 3 3-3M4.5 12.5h7' stroke='white' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='12.6' cy='12.6' r='2.2' fill='%2300ffa3'/></svg>">
+<style>
+  :root { color-scheme: dark; --bg:#111; --card:#1b1b1b; --line:#2a2a2a; --fg:#eee; --mute:#888; --acc:#e53935; --ok:#43a047; --warn:#fb8c00; --surf:#222; --card2:#151515; --r:8px; --pill:6px; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 var(--font, system-ui, sans-serif); }
+  main { max-width:1200px; margin:0 auto; padding:16px; display:grid; gap:16px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  h1 { margin:0; font-size:20px; } h2 { margin:0 0 12px; font-size:15px; }
+  form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, select, button { background:var(--surf); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:inherit; }
+  select:disabled { opacity:.4; }
+  input[type=url] { flex:1; min-width:220px; }
+  button { cursor:pointer; } button.primary, nav button.on { background:var(--acc); border-color:var(--acc); }
+  button.sm { padding:3px 8px; font-size:12px; }
+  nav { display:flex; gap:8px; flex-wrap:wrap; }
+  .opts { display:flex; gap:8px; flex-wrap:wrap; width:100%; align-items:end; }
+  .opts label { display:grid; gap:2px; color:var(--mute); font-size:12px; }
+  .opts .checks { display:flex; gap:10px; align-items:center; padding:8px 0; color:var(--fg); font-size:13px; }
+  .opts .checks label { display:flex; gap:4px; color:var(--fg); font-size:13px; }
+  .row { display:flex; gap:8px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .mute { color:var(--mute); font-size:12px; } .err { color:#ff8a80; font-size:12px; word-break:break-all; }
+  .bar { height:4px; background:#333; } .bar i { display:block; height:100%; background:var(--acc); }
+  .vids { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+  .vid { background:var(--card2); border:1px solid var(--line); border-radius:8px; overflow:hidden; cursor:pointer; position:relative; }
+  .vid:hover { border-color:#555; }
+  .vid img { width:100%; aspect-ratio:16/9; object-fit:cover; display:block; background:#000; }
+  .vid .kind { position:absolute; top:6px; left:6px; }
+  .vid .body { padding:8px; display:grid; gap:4px; }
+  .vid .t { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .subs { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+  .sub { display:flex; gap:12px; align-items:center; padding:12px; background:var(--card2); border:1px solid var(--line); border-radius:8px; cursor:pointer; }
+  .sub.on { border-color:var(--acc); } .sub.off { opacity:.5; }
+  .sub img { width:56px; height:56px; border-radius:50%; object-fit:cover; background:#333; flex:none; }
+  .sub .info { min-width:0; flex:1; display:grid; gap:2px; } .sub b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tag { display:inline-block; padding:0 6px; border-radius:4px; background:#2a2a2a; font-size:11px; color:#bbb; margin-right:4px; }
+  .tag.red { background:var(--acc); color:#fff; }
+  .choices { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; width:100%; }
+  .choices label { display:grid; gap:2px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; cursor:pointer; background:var(--card2); }
+  .choices label:has(input:checked) { border-color:var(--acc); background:var(--tint, #2a1616); }
+  .choices input { display:none; } .choices span { font-size:12px; color:var(--mute); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px; width:100%; }
+  .grid label { display:grid; gap:4px; color:var(--mute); font-size:12px; }
+  details { width:100%; } summary { cursor:pointer; color:var(--mute); margin:12px 0; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; }
+  .stat { background:var(--card2); border:1px solid var(--line); border-radius:8px; padding:12px; display:grid; gap:4px; }
+  .stat b { font-size:22px; } .stat.ok { border-left:4px solid var(--ok); } .stat.bad { border-left:4px solid var(--acc); } .stat.warn { border-left:4px solid var(--warn); }
+  .banner { background:#3a1414; border:1px solid var(--acc); border-radius:8px; padding:12px; }
+  table { width:100%; border-collapse:collapse; } td, th { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; } th { color:var(--mute); font-weight:500; }
+  .wrap { overflow-x:auto; }
+  .log { max-height:320px; overflow:auto; font-size:13px; display:grid; gap:2px; }
+  .log time { color:var(--mute); margin-right:8px; font-variant-numeric:tabular-nums; }
+  dialog { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:12px; padding:0; width:min(720px, calc(100vw - 32px)); max-height:90vh; }
+  dialog::backdrop { background:#000a; }
+  dialog img, dialog video { width:100%; display:block; aspect-ratio:16/9; object-fit:cover; background:#000; }
+  dialog video { object-fit:contain; }
+  dialog .body { padding:16px; display:grid; gap:12px; }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:4px 16px; margin:0; } dt { color:var(--mute); } dd { margin:0; word-break:break-all; }
+  pre { white-space:pre-wrap; margin:0; font:inherit; color:#ccc; max-height:240px; overflow:auto; background:var(--card2); padding:10px; border-radius:6px; }
+  /* 탭에 들어가면 그 플랫폼 대표 색상 (YouTube 빨강 / 치지직 형광 초록) */
+  body[data-theme=youtube] { --acc:#ff0033; --acc-fg:#fff; --tint:#2a1015; }
+  body[data-theme=chzzk] { --acc:#00ffa3; --acc-fg:#03140d; --tint:#0c2a20; }
+  button.primary, nav button.on { color:var(--acc-fg, #fff); font-weight:600; }
+  .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .toolbar input[type=search] { flex:1; min-width:160px; padding:6px 10px; }
+  .filters { display:flex; gap:4px; flex-wrap:wrap; }
+  .filters button { padding:4px 10px; font-size:13px; border-radius:16px; }
+  .filters button.on { background:var(--acc); border-color:var(--acc); color:var(--acc-fg, #fff); }
+  .selbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; margin-bottom:12px; border:1px solid var(--acc); border-radius:8px; background:var(--tint); }
+  .pager { display:flex; gap:4px; align-items:center; justify-content:center; flex-wrap:wrap; margin-top:16px; }
+  .pager button { min-width:36px; padding:6px 8px; } .pager button.on { background:var(--acc); border-color:var(--acc); color:var(--acc-fg, #fff); font-weight:600; }
+  .pager button:disabled { opacity:.35; cursor:default; } .pager .mute { margin-left:8px; }
+  .vid .chk { position:absolute; top:6px; right:6px; width:22px; height:22px; border-radius:50%; border:2px solid #fff; background:#0008; }
+  .vid.pick { border-color:var(--acc); outline:2px solid var(--acc); } .vid.pick .chk { background:var(--acc); }
+  #settings .stab { width:100%; }
+  #settings .grid { align-items:end; }  /* 설명이 두 줄인 칸도 입력칸 높이·위치가 나란하게 */
+  #settings .grid input, #settings .grid select { height:40px; width:100%; }
+  h3.sg { margin:20px 0 8px; font-size:13px; color:var(--fg); padding-bottom:6px; border-bottom:1px solid var(--line); }
+  [data-stab-page=common] > h3.sg:first-of-type, [data-popts] > h3.sg:first-child { margin-top:8px; }
+  h3.sg .mute { font-weight:400; margin-left:6px; }
+  /* 설정의 YouTube / 치지직 탭: 코덱 토글·선택한 화질 카드·저장 버튼을 그 플랫폼 색으로 (공통 탭은 기본 빨강) */
+  [data-stab-page=youtube], #settings[data-stab=youtube] { --acc:#ff0033; --acc-fg:#fff; --tint:#2a1015; }
+  [data-stab-page=chzzk], #settings[data-stab=chzzk] { --acc:#00ffa3; --acc-fg:#03140d; --tint:#0c2a20; }
+  #settings > button.primary { min-width:120px; }
+  .alist { margin-top:8px; max-height:260px; overflow:auto; display:grid; gap:2px; align-content:start; }
+  .arow { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:10px; align-items:center; padding:5px 8px; border-radius:8px; }
+  .arow:hover { background:var(--card2); } .arow > :first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+  .arow .err, .arow .mute { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:280px; }
+  .tools { display:grid; gap:8px; } .tools > div { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .tools button { min-width:240px; text-align:left; }
+  /* 상세 창: 내용(.dscroll)만 스크롤, 버튼 줄(.actions)은 창 아래에 고정 (예전엔 버튼 줄 뒤로 글자가 비쳐 보였음) */
+  dialog[open] { display:flex; flex-direction:column; overflow:hidden; }
+  dialog .dscroll { overflow:auto; flex:1; min-height:0; outline:none; }  /* 창을 열면 스크롤 칸에 포커스 테두리가 생기던 것 숨김 */
+  dialog:focus-visible { outline:none; }
+  dialog .actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; flex:none; padding:12px 16px; border-top:1px solid var(--line); background:var(--card); }
+  button.danger { background:#c62828; border-color:#c62828; color:#fff; font-weight:600; }
+  button.warn { background:#ef6c00; border-color:#ef6c00; color:#fff; font-weight:600; }
+  .cutlog { background:#2a1414; border:1px solid #5a2020; border-radius:8px; padding:10px 12px; }
+  .cutlog ol { margin:6px 0 0; padding-left:20px; display:grid; gap:4px; } .cutlog li { cursor:pointer; } .cutlog li.me { font-weight:600; }
+  .qtabs { max-width:520px; } .qtabs button { padding:6px 10px; }
+  /* 상태 탭 */
+  .status { display:grid; gap:16px; }
+  .kpis { display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; display:grid; gap:2px; }
+  .kpi b { font-size:26px; line-height:1.2; } .kpi .mute { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kpi.warn b { color:var(--warn); } .kpi.bad b { color:#ff6b6b; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }  /* 나란한 두 칸 높이 같게 */
+  .cols > section { display:flex; flex-direction:column; } .cols > section > .log { flex:1; }
+  .kv summary { margin:2px 0 0; font-size:12px; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:10px 16px; align-items:baseline; }
+  .kv dt, .kv > span:nth-child(odd) { color:var(--mute); font-size:13px; }
+  .meter { height:6px; background:#333; border-radius:3px; margin-top:4px; } .meter i { display:block; height:100%; border-radius:3px; background:var(--ok); }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--ok); } .dot.bad { background:#ff6b6b; } .dot.warn { background:var(--warn); }
+  .nums { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-top:10px; }
+  .nums div { background:var(--card2); border-radius:8px; padding:8px 10px; } .nums b { display:block; font-size:18px; }
+  .status .log { max-height:260px; }
+  .sched { display:grid; gap:8px; max-height:420px; overflow:auto; }
+  .srow { padding:8px 10px; background:var(--card2); border-radius:8px; display:grid; gap:2px; } .srow.off { opacity:.5; }
+  .srow .row { flex-wrap:nowrap; } .srow b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .srow .row span { white-space:nowrap; }
+  @media (max-width: 900px) { .kpis { grid-template-columns:repeat(2, 1fr); } .cols { grid-template-columns:1fr; } }
+  .stabs button[data-stab=youtube].on { background:#ff0033; border-color:#ff0033; color:#fff; }
+  .stabs button[data-stab=chzzk].on { background:#00ffa3; border-color:#00ffa3; color:#03140d; }
+  nav button[data-tab=youtube] { border-color:#ff003366; } nav button[data-tab=chzzk] { border-color:#00ffa366; }
+  nav button[data-tab=youtube].on { background:#ff0033; border-color:#ff0033; color:#fff; }
+  nav button[data-tab=chzzk].on { background:#00ffa3; border-color:#00ffa3; color:#03140d; }
+  .platform-head { display:flex; align-items:center; gap:12px; padding:14px 16px; border-radius:10px; border:1px solid var(--acc); background:linear-gradient(90deg, var(--tint), transparent 70%); }
+  .platform-head .logo { font-weight:800; font-size:20px; color:var(--acc); letter-spacing:.5px; }
+  [data-platform] { display:grid; gap:12px; }
+  .platform-head .grow { flex:1; }
+  .seg { display:flex; gap:6px; } .seg button { flex:1; padding:10px; border-radius:8px; }
+  .seg button.on { background:var(--acc); border-color:var(--acc); color:var(--acc-fg, #fff); font-weight:600; }
+  form.add input[type=url] { font-size:15px; padding:11px 12px; }
+  details.more { width:100%; } details.more summary { margin:2px 0 6px; }
+  .opts .note { width:100%; color:var(--mute); font-size:12px; margin-top:4px; }
+  .badge { padding:2px 8px; border-radius:10px; font-size:12px; background:#2a2a2a; }
+  .badge.on { background:var(--acc); color:var(--acc-fg, #fff); } .badge.warn { background:var(--warn); color:#000; }
+  .opts label.path { flex:1; min-width:280px; } .opts label.path input { width:100%; }
+  textarea { width:100%; margin-top:8px; background:var(--surf); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px; font:12px/1.4 ui-monospace, monospace; }
+  /* 플랫폼 탭: 모양·크기·글꼴은 같고 색만 그 사이트 색 (탭을 바꿔도 화면이 출렁이지 않게) */
+  html { scrollbar-gutter:stable; }  /* 목록 길이가 달라 스크롤바가 생겼다 없어지며 화면이 좌우로 밀리던 것 방지 */
+  body[data-theme=youtube] { --bg:#0f0f0f; --card:#181818; --card2:#222; --surf:#303030; --line:#3f3f3f; --fg:#f1f1f1; --mute:#b5b5b5; }
+  body[data-theme=chzzk] { --bg:#141517; --card:#1c1d20; --card2:#222327; --surf:#2e3034; --line:#383a3f; --fg:#fff; --mute:#a9b0bf; }
+  body[data-theme=base] { --bg:#0f0f0f; --card:#181818; --card2:#222; --surf:#303030; --line:#3f3f3f; --fg:#f1f1f1; --mute:#b5b5b5; }
+  body[data-theme] main section, body[data-theme] .kpi { border:0; border-radius:var(--r); }  /* 상태·설정 판도 플랫폼 탭과 같게 */
+  body[data-theme] { --r:12px; --pill:18px; --font:Pretendard, "Apple SD Gothic Neo", Roboto, "Noto Sans KR", sans-serif; }
+  body[data-theme] input, body[data-theme] select, body[data-theme] button { border-radius:var(--pill); }
+  body[data-theme] button { border-color:transparent; font-weight:500; }
+  body[data-theme] [data-platform] > section { border:0; border-radius:var(--r); }
+  body[data-theme] .vid { background:transparent; border:0; border-radius:0; overflow:visible; }
+  body[data-theme] .vid img { border-radius:var(--r); }
+  body[data-theme] .vid .bar { margin:-4px var(--r) 0; position:relative; border-radius:2px; overflow:hidden; }
+  body[data-theme] .vid .body { padding:10px 2px 0; }
+  body[data-theme] .vid .t { font-size:15px; font-weight:600; line-height:1.4; }
+  body[data-theme] .vid:hover img { filter:brightness(1.1); }
+  body[data-theme] .vid.pick { outline:0; } body[data-theme] .vid.pick img { outline:3px solid var(--acc); outline-offset:-3px; }
+  body[data-theme] .vid .kind { top:8px; left:8px; z-index:1; }
+  body[data-theme] .sub { border:0; border-radius:var(--r); }
+  body[data-theme] .sub.on { box-shadow:inset 0 0 0 2px var(--acc); }
+  body[data-theme] .platform-head { border:1px solid color-mix(in srgb, var(--acc) 45%, transparent); height:64px; }  /* 플랫폼 색 테두리 */
+  body[data-theme] [data-platform] .filters button.on, body[data-theme] [data-platform] .seg button.on { background:var(--fg); border-color:var(--fg); color:var(--bg); }  /* 목록 화면 칩만 흰색 (설정 탭은 플랫폼 색) */
+  body[data-theme] form.add input[type=url], body[data-theme] .toolbar input[type=search] { background:var(--bg); border-color:var(--line); }
+  /* 로고: 두 플랫폼 같은 크기 (28px 아이콘 + 20px 글자) */
+  .platform-head .logo { display:inline-flex; align-items:center; gap:8px; height:28px; font-size:20px; font-weight:800; letter-spacing:-.5px; color:var(--fg); }
+  .platform-head .logo i.dl { background:var(--acc) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 3.5v6M5 7l3 3 3-3M4.5 12.5h7' stroke='white' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/18px no-repeat !important; border-radius:50% !important; }  /* 유튜브 로고와 다른 우리 표시 */
+  .platform-head .logo i:not(.czi) { font-style:normal; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:8px; background:var(--acc); color:var(--acc-fg); font-size:13px; }
+  .platform-head .logo .cz { font-style:italic; font-weight:900; font-size:20px; color:var(--acc); }
+  body[data-theme=chzzk] .tag.red { background:#ff3b3b; }
+  /* 치지직 아이콘: 치지직 사이트의 파비콘을 그대로 불러옴 (저장소에 남의 로고 이미지를 넣지 않음 · 인터넷이 없으면 안 보임) */
+  i.czi { display:inline-block; width:1.15em; height:1.15em; vertical-align:-.2em; margin-right:5px; background:url(https://ssl.pstatic.net/static/nng/glive/icon/favicon.png) center/contain no-repeat; }
+  .platform-head .logo i.czi { width:28px; height:28px; margin:0; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="row">
+    <h1>치튜브 <span class="mute" style="font-size:13px; font-weight:500">유튜브 · 치지직 다운로더</span> <span class="mute" id="appver"></span></h1>
+    <div style="display:flex; gap:8px; align-items:center"><button id="langbtn" class="sm" title="Language / 언어" onclick="setLang(LANG === 'en' ? 'ko' : 'en')"></button>
+    <nav><button data-tab="youtube" class="on">YouTube</button><button data-tab="chzzk"><i class="czi"></i>치지직</button><button data-tab="status">상태<span id="upddot" style="color:var(--acc)" hidden> ●</span></button><button data-tab="set">설정</button></nav></div>
+  </div>
+  <div id="wait" class="mute"></div>
+  <div id="pausebar" class="banner" hidden></div>
+
+  <div data-page="youtube" data-platform="youtube"></div>
+  <div data-page="chzzk" data-platform="chzzk" hidden></div>
+
+  <div data-page="status" class="status" hidden>
+    <div id="stats" class="kpis"></div>
+    <div class="cols">
+      <section>
+        <h2>시스템 <span id="sysok"></span></h2>
+        <div id="sys" class="kv"></div>
+        <div class="row" style="margin-top:12px"><span class="mute" id="updinfo"></span><span id="updates"></span></div>
+      </section>
+      <section>
+        <div class="row"><h2 style="margin:0">다운로드 점검</h2><button class="sm" id="auditbtn" onclick="act('/api/audit/run','POST')">지금 점검</button></div>
+        <div id="audit" style="margin-top:12px"></div>
+      </section>
+    </div>
+    <div class="cols">
+      <section><h2 style="color:#ff4d6d">YouTube 새 영상 확인</h2><div id="sched-youtube" class="sched"></div></section>
+      <section><h2 style="color:#00ffa3"><i class="czi"></i>치지직 새 영상 확인</h2><div id="sched-chzzk" class="sched"></div></section>
+    </div>
+    <div class="cols">
+      <section><h2>최근 활동</h2><div id="log" class="log"></div></section>
+      <section><div class="row"><h2>최근 오류</h2><button class="sm" id="errhide" onclick="hideErrors()" hidden>모두 숨기기</button></div><div id="errors" class="log"></div></section>
+    </div>
+  </div>
+
+  <section data-page="set" hidden>
+    <div class="seg stabs" style="margin-bottom:16px">
+      <button class="on" data-stab="common" onclick="setStab('common')">공통</button>
+      <button data-stab="youtube" onclick="setStab('youtube')">YouTube</button>
+      <button data-stab="chzzk" onclick="setStab('chzzk')"><i class="czi"></i>치지직</button>
+    </div>
+    <form id="settings" onsubmit="save(event)">
+     <div data-stab-page="common" class="stab">
+      <p class="mute" style="margin:0 0 4px">화질·저장 경로는 YouTube / 치지직 탭에서 따로 정합니다</p>
+      <h3 class="sg">저장</h3>
+      <div class="grid">
+        <label>영상마다 폴더 만들기<select name="video_folder"><option value="1">켜기 (영상·썸네일·자막·nfo 를 한 폴더에)</option><option value="0">끄기 (시즌 폴더에 바로)</option></select></label>
+        <label>최소 여유 공간 GB (부족하면 새 다운로드 멈춤 · 0 = 끔)<input name="min_free_gb" type="number" min="0"></label>
+      </div>
+      <h3 class="sg">압축</h3>
+      <div class="grid">
+        <label>압축 방식<select name="stream_compress"><option value="1">받으면서 바로 압축 (임시 파일 없음 · 추천)</option><option value="0">다 받은 뒤 압축 (원본을 잠깐 저장)</option></select></label>
+        <label>생방송 녹화하면서 압축<select name="live_compress"><option value="gpu_cpu">그래픽카드로, 한계면 CPU 로 (추천)</option><option value="gpu">그래픽카드로만 (안 되면 녹화 후 압축)</option><option value="off">끄기 (녹화 후 압축)</option></select></label>
+        <label>하드웨어 가속<select name="hwaccel"><option value="auto">자동 (엔비디아 → 인텔 퀵싱크 → CPU)</option><option value="cpu">CPU</option><option value="nvenc">엔비디아 (NVENC)</option><option value="vaapi">인텔 퀵싱크</option></select></label>
+      </div>
+      <h3 class="sg">다운로드 · 로그인</h3>
+      <div class="grid">
+        <label>다운로드 점검<select name="audit_hours"><option value="">끄기</option><option value="4">하루 1번 (새벽 4시)</option><option value="4,16">하루 2번 (새벽 4시 · 오후 4시)</option></select></label>
+        <label>속도 제한 (예: 10M · 비우면 무제한)<input name="rate_limit" placeholder="무제한"></label>
+        <label>로그인 갱신 안내 (일 · 0 = 끔)<input name="login_refresh_days" type="number" min="0" max="365"></label>
+      </div>
+      <details>
+        <summary>고급 설정 (화질 "직접 설정"을 고른 탭에서 쓰는 값)</summary>
+        <div class="grid">
+          <label>직접 설정: 코덱<select name="codec"><option value="none">압축 안 함</option><option value="h264">H.264</option><option value="h265">H.265</option><option value="av1">AV1</option></select></label>
+          <label>직접 설정: CRF (0-51, 낮을수록 고화질)<input name="crf" type="number" min="0" max="51"></label>
+          <label>직접 설정: 최대 크기 (원본 대비 %)<input name="ratio" type="number" min="10" max="200"></label>
+          <label>압축 속도 (느릴수록 작은 용량, NAS 는 fast 이하 권장)<select name="preset"><option>ultrafast</option><option>veryfast</option><option>fast</option><option>medium</option><option>slow</option><option>veryslow</option></select></label>
+          <label>오디오 비트레이트<input name="audio_bitrate"></label>
+        </div>
+      </details>
+      <h3 class="sg">관리 <span class="mute">누르면 바로 실행 (아래 '저장'과 상관없음)</span></h3>
+      <div class="tools">
+        <div><button type="button" onclick="organize(this)">이미 받은 영상을 영상별 폴더로 정리</button><span class="mute" id="orgmsg">영상·썸네일·자막·nfo 를 함께 옮김</span></div>
+        <div><a href="/api/backup"><button type="button">설정·구독 백업 파일 받기</button></a><span class="mute">서버를 옮기거나 다시 설치할 때</span></div>
+        <div><button type="button" onclick="this.nextElementSibling.click()">백업 불러오기</button><input type="file" accept=".json,application/json" hidden onchange="restoreBackup(this)"><span class="mute" id="bakmsg">로그인 정보·받은 영상 목록은 포함 안 됨</span></div>
+      </div>
+     </div>
+
+     <div data-stab-page="youtube" class="stab" hidden>
+      <div data-popts="youtube"></div>
+      <h3 class="sg">다운로드 <span class="mute">봇 차단을 피하는 설정 · 기본값이 안전</span></h3>
+      <div class="grid">
+        <label>동시 다운로드 · 2개 이상은 차단 위험<select name="concurrency" data-n="20"></select></label>
+        <label>생방송 동시 녹화<select name="live_concurrency" data-n="20"></select></label>
+        <label>새 영상 확인 주기 (기본)<select name="check_interval_min"></select></label>
+        <label>자막<select name="subtitles"><option value="all">전부 (직접 만든 자막 + 자동 생성 원어)</option><option value="manual">직접 만든 자막만</option><option value="off">받지 않음</option></select></label>
+        <label>24시간 최대 다운로드 개수<input name="daily_limit" type="number" min="1"></label>
+        <label>차단 신호 감지 시 쉬는 시간<select name="bot_cooldown_min"><option value="30">30분</option><option value="60">1시간</option><option value="180">3시간</option><option value="360">6시간</option></select></label>
+      </div>
+      <details>
+        <summary>고급 설정 (요청 간격)</summary>
+        <div class="grid">
+          <label>영상 간 대기 최소(초)<input name="sleep_min" type="number" min="0"></label>
+          <label>영상 간 대기 최대(초)<input name="sleep_max" type="number" min="0"></label>
+          <label>요청 간 대기(초)<input name="sleep_requests" type="number" min="0" step="0.5"></label>
+          <label>확인 시 탭마다 최신 N개만 조회<input name="sub_fetch_limit" type="number" min="1"></label>
+        </div>
+      </details>
+     </div>
+
+     <div data-stab-page="chzzk" class="stab" hidden>
+      <div data-popts="chzzk"></div>
+      <h3 class="sg">다운로드 <span class="mute">차단 없음 · 생방송은 10초마다 확인 · 다시보기는 8갈래로 받음</span></h3>
+      <div class="grid">
+        <label>동시 다운로드 (다시보기)<select name="chzzk_concurrency" data-n="20"></select></label>
+        <label>생방송 동시 녹화<select name="chzzk_live_concurrency" data-n="20"></select></label>
+      </div>
+     </div>
+      <button class="primary" style="margin-top:16px">저장</button>
+    </form>
+  </section>
+</main>
+
+<dialog id="dlg" onclick="event.target === this && this.close()" onclose="this.innerHTML = ''"></dialog>
+
+<script>
+// 화면 언어: 한국어(기본) / English. 화면에 그려진 글자를 아래 사전으로 바꿈 (코드는 한국어 그대로).
+// 영상 제목·채널명·설명처럼 내용인 곳은 translate="no" 로 제외. 언어를 바꾸면 새로고침.
+// ponytail: 문구 사전 방식이라 사전에 없는 새 문구는 한국어로 남음 → 문구를 추가할 때 여기에도 추가
+let LANG = 'ko';
+try { LANG = localStorage.getItem('lang') === 'en' ? 'en' : 'ko'; } catch { /* 저장소를 못 쓰면 한국어 */ }
+const LOC = LANG === 'en' ? 'en-US' : 'ko-KR';  // 날짜·시각 표기
+const EN = {
+  // 확인 창 (긴 문장)
+  '조각마다 영상 형식이 달라 그대로는 이어 붙일 수 없습니다.\n전부 지금 화질 설정으로 다시 압축해서 합칠까요?\n(방송 길이만큼 오래 걸리고 CPU 를 씀 · 끝나면 로그에 표시)': 'The parts have different video formats and cannot be joined as-is.\nRe-encode all of them with the current quality setting and merge?\n(Takes about as long as the broadcast and uses CPU · shown in the log when done)',
+  '유튜브·치지직 로그인 정보와 로그인용 브라우저 기록(구글·네이버 로그인 상태)을 전부 지울까요?\n로그인이 꼬였을 때 처음부터 다시 로그인하는 용도입니다.': 'Delete all YouTube/Chzzk login info and the login browser data (Google/Naver sessions)?\nUse this to start over when login is broken.',
+  '나뉜 녹화 파일을 1번째 파일 하나로 합칠까요?\n(화질 그대로 이어 붙임 · 빠진 구간은 그대로 빠짐 · 성공하면 나머지 조각 파일은 삭제)': 'Merge the split recording into the first file?\n(Joined at the same quality · gaps stay missing · other part files are deleted on success)',
+  '컨테이너를 재시작해서 yt-dlp/deno 를 최신으로 설치할까요?\n진행 중인 다운로드는 재시작 후 이어받습니다.': 'Restart the container to install the latest yt-dlp/deno?\nDownloads in progress resume after the restart.',
+  '⚠ 유튜브가 지금 이 서버를 봇으로 의심하고 있습니다.\n\n그래도 받으면:\n': '⚠ YouTube currently suspects this server is a bot.\n\nIf you download anyway:\n',
+  '· 대부분 다시 실패하고, 차단 시간이 더 길어지거나 IP 가 몇 시간~며칠 막힐 수 있음\n': '· Most will fail again, the block may get longer, or the IP may be blocked for hours to days\n',
+  '· 로그인한 계정이': '· The logged-in account may be asked to',
+  '을 요구받거나 일시 제한될 수 있음\n': ' or be temporarily restricted\n',
+  '· 쉬는 시간이 풀리고 대기 중인 유튜브 영상도 다시 받기 시작함\n\n그래도 지금 재개하고 받을까요?': '· The pause ends and queued YouTube videos start downloading again\n\nResume and download now anyway?',
+  '이미 받은 영상을 영상별 폴더로 옮길까요? (영상·썸네일·자막·nfo 를 함께 이동)': 'Move downloaded videos into per-video folders? (video, thumbnail, subtitles and nfo move together)',
+  '이 채널의 기존 영상을 전부(오래된 것부터) 받을까요? 이미 받은 영상은 건너뜀': 'Download all existing videos of this channel (oldest first)? Already downloaded videos are skipped',
+  '백업의 설정으로 덮어쓰고, 없는 구독 채널을 추가할까요?': 'Overwrite settings from the backup and add missing subscriptions?',
+  '녹화를 멈추고 지금까지 녹화한 부분을 저장할까요?': 'Stop recording and save what has been recorded so far?',
+  '받기를 멈추고 받던 파일을 지울까요?': 'Stop downloading and delete the partial file?',
+  '기존 파일을 지우고 다시 받을까요?': 'Delete the existing file and download again?',
+  '구독 삭제? (받은 파일은 유지)': 'Delete subscription? (downloaded files are kept)',
+  '목록에서 삭제? (파일은 유지)': 'Remove from list? (file is kept)',
+  '저장된 로그인 쿠키를 지울까요?': 'Delete the saved login cookies?',
+  '대기열에서 뺄까요?': 'Remove from the queue?',
+  // 화질 프리셋·설명
+  'AV1 하드웨어 압축 · 화질은 H.265 표준 이상, 용량은 원본의 약 45% · 2020년 이전 TV·기기는 재생 안 될 수 있음': 'AV1 hardware encoding · quality above H.265 Standard, about 45% of the original size · may not play on TVs/devices before 2020',
+  '같은 화질에 H.264 보다 훨씬 작음 · 2016년 이후 TV·폰·Plex 대부분 재생': 'Much smaller than H.264 at the same quality · plays on most TVs/phones/Plex since 2016',
+  '조용한 영상은 원본급, 빠른 장면 아주 약간 · 용량 69% / 73%': 'Original-like for calm videos, slight loss in fast scenes · size 69% / 73%',
+  '다시 압축하지 않고 받은 그대로 저장하거나, 코덱·CRF 를 직접 정함': 'Save as downloaded without re-encoding, or set codec/CRF yourself',
+  '빠른 장면(게임 등)에서 뭉개짐 보임 · 용량 56% / 58%': 'Visible smearing in fast scenes (games etc.) · size 56% / 58%',
+  '원본 정도 화질 · 용량은 원본 정도 (줄지 않음) · 호환성용': 'About original quality · about original size (no saving) · for compatibility',
+  '거의 원본 그대로 · 용량은 원본 정도 (줄지 않음)': 'Nearly identical to the original · about original size (no saving)',
+  '하드웨어 AV1 인코더가 있을 때만 · 가장 작음': 'Only with a hardware AV1 encoder · smallest',
+  '원본과 구분 어려움 · 용량 86% / 100%': 'Hard to tell from the original · size 86% / 100%',
+  '재압축 없음 · 화질 손실 0 · 용량 가장 큼': 'No re-encoding · zero quality loss · largest size',
+  '공통 탭 → 고급 설정의 코덱·CRF·최대 크기': 'Common tab → codec/CRF/max size in Advanced',
+  '거의 원본 그대로 · 용량 77% / 93%': 'Nearly identical to the original · size 77% / 93%',
+  '거의 모든 기기에서 재생 · 대신 용량이 큼': 'Plays on almost every device · but larger',
+  'H.265 (추천)': 'H.265 (recommended)', '표준 (추천)': 'Standard (recommended)', '원본 그대로': 'Original', '직접 설정': 'Custom',
+  '원본급': 'Near-original', '고화질': 'High', '용량 절약': 'Save space', '고효율': 'High efficiency',
+  // 설정
+  '화질·저장 경로는 YouTube / 치지직 탭에서 따로 정합니다': 'Quality and save path are set separately in the YouTube / Chzzk tabs',
+  '최소 여유 공간 GB (부족하면 새 다운로드 멈춤 · 0': 'Minimum free space GB (pauses new downloads when low · 0',
+  '압축 속도 (느릴수록 작은 용량, NAS 는 fast 이하 권장)': 'Encoding speed (slower = smaller; fast or lower recommended on NAS)',
+  '차단 없음 · 생방송은 10초마다 확인 · 다시보기는 8갈래로 받음': 'No blocking · live checked every 10s · replays downloaded with 8 connections',
+  '(받으면서 압축해 원본은 저장 안 함 · 방송 비트레이트로 추정)': '(compressed while downloading, original not saved · estimated from the stream bitrate)',
+  '직접 설정: CRF (0-51, 낮을수록 고화질)': 'Custom: CRF (0-51, lower = better quality)',
+  '직접 설정: 최대 크기 (원본 대비 %)': 'Custom: max size (% of original)', '직접 설정: 코덱': 'Custom: codec',
+  '받으면서 바로 압축 (임시 파일 없음 · 추천)': 'Compress while downloading (no temp file · recommended)',
+  '다 받은 뒤 압축 (원본을 잠깐 저장)': 'Compress after download (keeps the original briefly)',
+  '켜기 (영상·썸네일·자막·nfo 를 한 폴더에)': 'On (video, thumbnail, subtitles and nfo in one folder)',
+  '끄기 (시즌 폴더에 바로)': 'Off (directly in the season folder)',
+  '속도 제한 (예: 10M · 비우면 무제한)': 'Speed limit (e.g. 10M · empty = unlimited)',
+  '자동 (엔비디아 → 인텔 퀵싱크 → CPU)': 'Auto (NVIDIA → Intel Quick Sync → CPU)',
+  '전부 (직접 만든 자막 + 자동 생성 원어)': 'All (manual subtitles + auto-generated original language)',
+  '그래픽카드로, 한계면 CPU 로 (추천)': 'With the GPU, CPU when it can\'t keep up (recommended)',
+  '그래픽카드로만 (안 되면 녹화 후 압축)': 'GPU only (otherwise compress after recording)',
+  '끄기 (녹화 후 압축)': 'Off (compress after recording)',
+  '동시 다운로드 · 2개 이상은 차단 위험': 'Concurrent downloads · 2+ risks blocking',
+  '봇 차단을 피하는 설정 · 기본값이 안전': 'Settings that avoid bot blocking · defaults are safe',
+  '하루 2번 (새벽 4시 · 오후 4시)': 'Twice a day (4 AM · 4 PM)', '하루 1번 (새벽 4시)': 'Once a day (4 AM)',
+  '확인 시 탭마다 최신 N개만 조회': 'Latest N per tab when checking',
+  '로그인 갱신 안내 (일 · 0': 'Login refresh reminder (days · 0',
+  '24시간 최대 다운로드 개수': 'Max downloads per 24 h', '차단 신호 감지 시 쉬는 시간': 'Pause when a block signal is detected',
+  '새 영상 확인 주기 (기본)': 'New video check interval (default)', '동시 다운로드 (다시보기)': 'Concurrent downloads (replays)',
+  '영상 간 대기 최대(초)': 'Max wait between videos (s)', '영상 간 대기 최소(초)': 'Min wait between videos (s)', '요청 간 대기(초)': 'Wait between requests (s)',
+  '고급 설정 (요청 간격)': 'Advanced (request intervals)', '고급 설정 (화질': 'Advanced (values used by tabs set to "', '을 고른 탭에서 쓰는 값)': '" quality)',
+  '생방송 녹화하면서 압축': 'Compress while recording live', '영상마다 폴더 만들기': 'Folder per video', '오디오 비트레이트': 'Audio bitrate',
+  '생방송 동시 녹화': 'Concurrent live recordings', '하드웨어 가속 안 되는 이유': 'Why hardware acceleration is unavailable',
+  '엔비디아 GPU 연결 안 됨 (측정 불가)': 'NVIDIA GPU not connected (no reading)', '엔비디아 (NVENC)': 'NVIDIA (NVENC)', '인텔 퀵싱크': 'Intel Quick Sync',
+  '직접 만든 자막만': 'Manual subtitles only', '받지 않음': 'Don\'t download', '압축 안 함': 'No compression',
+  '다운로드 · 로그인': 'Downloads · Login', '하드웨어 가속': 'Hardware acceleration', '다운로드 점검': 'Download audit', '압축 방식': 'Compression mode',
+  '최대 해상도': 'Max resolution', '저장 경로': 'Save path', '확인 주기': 'Check interval',
+  '누르면 바로 실행 (아래': 'Runs immediately (unrelated to the', '과 상관없음)': ' button below)',
+  '이미 받은 영상을 영상별 폴더로 정리': 'Move downloaded videos into per-video folders', '영상·썸네일·자막·nfo 를 함께 옮김': 'Moves video, thumbnail, subtitles and nfo together',
+  '설정·구독 백업 파일 받기': 'Download settings/subscriptions backup', '서버를 옮기거나 다시 설치할 때': 'For moving or reinstalling the server',
+  '백업 불러오기': 'Restore backup', '로그인 정보·받은 영상 목록은 포함 안 됨': 'Login info and the downloaded list are not included',
+  '저장됨 (다음 작업부터 적용)': 'Saved (applies from the next job)', '설정 탭 기본값': 'Settings tab default', '설정 기본값': 'Default from settings', '설정 따름': 'Follows settings',
+  '이 채널 설정 저장': 'Save channel settings', '대기 중인 영상부터 적용': 'Applies to queued videos too', '구독할 때만 적용': 'Applies only when subscribing',
+  '하루 한 번': 'Once a day', '12시간마다': 'Every 12 h', '6시간마다': 'Every 6 h', '3시간마다': 'Every 3 h', '1시간마다': 'Hourly', '30분마다': 'Every 30 min', '분마다': ' min interval',
+  '상대 경로 또는 서버 절대 경로 (/로 시작)': 'Relative path or absolute server path (starting with /)', '또는 서버 절대 경로 /volume1/video/': ' or absolute server path /volume1/video/',
+  '날짜 - 제목 [ID].mp4': 'date - title [ID].mp4', '/채널명/Season 연도/': '/channel/Season year/', '/스트리머/': '/streamer/', '날짜 - 제목/': 'date - title/',
+  '영상이름.mp4': 'video.mp4', '영상이름/': 'video/', '다운로드 폴더': 'Download folder', '저장 위치:': 'Saved to:', '예)': 'e.g.', '예) /volume1/video/': 'e.g. /volume1/video/',
+  // 플랫폼 화면
+  'https://chzzk.naver.com/video/12345  또는  https://chzzk.naver.com/live/채널ID': 'https://chzzk.naver.com/video/12345  or  https://chzzk.naver.com/live/channelID',
+  'https://www.youtube.com/@채널 또는 재생목록 주소': 'https://www.youtube.com/@channel or a playlist URL', 'https://chzzk.naver.com/채널ID': 'https://chzzk.naver.com/channelID',
+  '영상 / 숏츠 / 라이브 / 재생목록 / 채널 주소': 'video / Shorts / live / playlist / channel URL', '다시보기 / 생방송 / 채널 주소': 'replay / live / channel URL',
+  '· 구독: 채널': '· Subscribe: channel', '또는 재생목록': ' or playlist',
+  '멤버십 전용 · 성인 인증 영상을 받으려면 필요': 'Needed for members-only and age-verified videos',
+  '계정으로 평소처럼 로그인 (2단계 인증도 그대로': 'account as usual (2-step verification works', '체크 · QR 로그인도 가능': ' · QR login works too',
+  '로그인 상태 유지': '"Stay signed in"', '→ 새 창에 서버 속 브라우저가 뜸 →': '→ the server\'s browser opens in a new window → sign in with your',
+  '로그인이 끝나면 여기서': 'When done, press', '→ 브라우저가 닫히고 로그인 정보가 저장됨': '→ the browser closes and the login is saved',
+  '(네이버 로그아웃하면 쿠키가 무효가 되니 로그아웃하지 말고 창만 닫기)': '(logging out of Naver invalidates the cookies — just close the window)',
+  '에서 로그인하고, 내보낸 뒤 그 창을 바로 닫기 — 계속 쓰면 유튜브가 쿠키를 바꿔 무효가 됨)': ', export, then close that window right away — if you keep using it, YouTube rotates the cookies and they become invalid)',
+  '→ 받은 cookies.txt 를 아래에 붙여넣거나 파일 선택 → 저장 → 로그인 확인': '→ paste the cookies.txt below or choose the file → Save → Check login',
+  '크롬·엣지·파이어폭스에 확장 프로그램': 'Install the extension in Chrome/Edge/Firefox', '그 탭에서 확장 프로그램 →': 'In that tab, extension →', '시크릿 창': 'Private window',
+  '또는 cookies.txt 직접 넣기': 'Or paste cookies.txt directly', 'cookies.txt 내용 붙여넣기': 'Paste cookies.txt contents', 'cookies.txt 내용을 넣어주세요': 'Please enter the cookies.txt contents',
+  '멤버십 가입·성인 인증된 계정': 'a members/age-verified account', '으로 로그인': ' sign in',
+  '초기화했습니다. 🔑 로그인 → 브라우저 열기로 다시 로그인해 주세요': 'Reset done. Sign in again via 🔑 Login → Open browser',
+  '일 · 🔑 로그인 → 브라우저 열기로 다시 로그인': ' days · sign in again via 🔑 Login → Open browser', '일 지남 · 다시 로그인 권장': ' days passed · signing in again is recommended',
+  '로그인 완전 초기화': 'Reset login completely', '로그아웃(저장 삭제)': 'Log out (delete saved)', '브라우저 열기': 'Open browser', '로그인 완료': 'Login done', '로그인 확인': 'Check login',
+  '✗ 로그인 안 됨': '✗ Not logged in', '✓ 로그인됨': '✓ Logged in', '로그인 쿠키 없음': 'No login cookie', '로그인 안 됨': 'Not logged in', '로그인됨 ·': 'Logged in ·', '로그인한 지': 'Logged in',
+  '🔑 로그인': '🔑 Login', '＋ 구독': '＋ Subscribe', '다운로드 목록': 'Downloads', '구독 채널': 'Subscriptions',
+  '기존 영상 전부 받기 (처음 영상부터': 'Download all existing videos (from the first', '기존 영상 전부 받기': 'Download all existing videos', '끄면 최신 영상 몇 개부터': 'Off = start from the latest few',
+  '기존 영상 전부 가져오는 중 · 오래된 영상부터': 'Fetching all existing videos · oldest first', '· 하루 최대 개수만큼씩': '· up to the daily limit per day',
+  '제목 · 채널 검색': 'Search title · channel', '정렬 (대기 목록은 받을 순서)': 'Sort (the queue keeps download order)',
+  '최근 추가순': 'Recently added', '오래된 추가순': 'Oldest added', '업로드 날짜순': 'Upload date', '제목순': 'Title', '채널순': 'Channel', '용량 큰 순': 'Largest', '길이 긴 순': 'Longest',
+  '보이는 것 전체 선택': 'Select all visible', '보이는 것 전부 다시 받기': 'Retry all visible', '보이는 대기 전부 취소': 'Cancel all visible queued', '선택 끝내기': 'Done selecting',
+  '선택한 영상이 없습니다': 'No videos selected', '(대기만)': '(queued only)', '(오류·취소만)': '(errors/cancelled only)', '목록에서 삭제 (파일은 유지)': 'Remove from list (file is kept)',
+  '구독한 채널이 없습니다': 'No subscriptions yet', '구독한 채널 없음': 'No subscriptions', '1분 내 첫 확인': 'First check within 1 min',
+  // 영상 카드·정보
+  '방송 중에 녹화가 끊김 · 영상 정보에서 끊긴 지점 확인': 'Recording was cut during the broadcast · see where in the video info',
+  '이 브라우저에서 재생할 수 없는 형식입니다 (H.265 는 사파리·엣지·하드웨어 지원 크롬에서 재생) → 아래': 'This browser can\'t play this format (H.265 plays in Safari, Edge and hardware-supported Chrome) → use',
+  '로 저장해서 재생': ' below to save and play it', '파일이 없습니다 (삭제·이동됨) → 아래': 'File is missing (deleted/moved) → use', '로 다시 받을 수 있음': ' below to download it again',
+  '▶ 지금 받는 부분 확인 (최근 10초)': '▶ Check what\'s downloading (last 10s)', '미리보기 만드는 중…': 'Making preview…', '↻ 최신으로': '↻ Latest', '— 다시 시도': '— try again',
+  '방송 중에 녹화가 끊겨 파일': 'Recording was cut during the broadcast; split into', '개로 나뉨 · 누르면 그 파일 정보': ' files · click for that file',
+  '⚠ 녹화 끊김 기록': '⚠ Recording cuts', '번째 파일 ·': ' file ·', '→ 끝까지 녹화': '→ recorded to the end', '→ 녹화 중': '→ recording', ')에서 끊김': ') cut',
+  '↳ 다음 파일 시작까지 약': '↳ about', '개 한 파일로 합치기': ' parts → merge into one file', '합치는 중… (큰 파일은 몇 분)': 'Merging… (a few minutes for big files)',
+  '다시 압축해서 합치는 중… (끝나면 로그에 표시)': 'Re-encoding and merging… (shown in the log when done)', '개를 한 파일로 합쳤습니다': ' parts merged into one file',
+  '■ 녹화 중지 (저장)': '■ Stop recording (save)', '받으면서 압축 중': 'Compressing while downloading', '녹화하면서 압축 중': 'Compressing while recording',
+  '라이브 녹화 중': 'Recording live', '다운로드 중': 'Downloading', '(실시간 녹화)': '(live recording)', '원본 그대로 ·': 'Original ·', '% · 압축본': '% · compressed', '% 절약)': '% saved)',
+  '다운로드 취소': 'Cancel download', '대기 취소': 'Cancel', '맨 앞으로': 'Move to front', '다시 받기': 'Download again', '목록에서 삭제': 'Remove from list', '파일 받기': 'Save file',
+  '취소됨': 'Cancelled', '⚠ 끊김': '⚠ Cut', '· 좋아요': '· likes', '· 인코더': '· encoder', '원문:': 'Original:',
+  // 상태 화면
+  '치튜브': 'ChiTube', '유튜브 · 치지직 다운로더': 'YouTube · Chzzk Downloader', 'YouTube 새 영상 확인': 'YouTube new video checks', '치지직 새 영상 확인': 'Chzzk new video checks',
+  '생방송 10초마다 감시 중': 'watching live every 10s', '다운로드 기다리는 중': 'waiting to download', '아래 최근 오류 확인': 'see recent errors below',
+  '유튜브 24시간': 'YouTube 24 h', '하루 최대 개수': 'daily max', '정상 · 가동': 'OK · up', '프로그램 최신 ·': 'Up to date ·', '업데이트 있음:': 'Updates available:',
+  '재시작해서 업데이트': 'Restart to update', '재시작 중... 잠시 후 자동으로 다시 연결됩니다': 'Restarting... reconnecting automatically shortly',
+  '업데이트 확인 중...': 'Checking for updates...', '점검 기록 없음': 'No audit yet', '자동 점검 꺼짐': 'Auto audit off', '점검 중...': 'Auditing...',
+  '파일 문제': 'File problems', '다운로드 포기': 'Gave up', '유튜버별 비교': 'Per-channel comparison', '놓친 영상': 'Missed videos', '파일 정상': 'Files OK', '문제 없음': 'No problems',
+  '모두 숨기기': 'Hide all', '숨기기': 'Hide', '목록에서 숨기기 (영상 정보에는 남음)': 'Hide from lists (still shown in video info)', '확인함 · 오류 목록에': 'Seen · in the error list:',
+  '지금 점검': 'Audit now', '지금 확인': 'Check now', '최근 활동': 'Recent activity', '최근 오류': 'Recent errors', '이상 없음': 'OK', '유튜브 차단': 'YouTube block', '동시 개수': 'Concurrency',
+  '다음 다운로드까지': 'Next download in', '초 (차단 예방 대기)': 's (pacing to prevent blocking)', '서버 연결 끊김 - 재연결 시도 중...': 'Disconnected from server - reconnecting...',
+  '디스크 공간 부족 → 그 디스크에 저장하는 새 다운로드·녹화를 멈췄습니다.': 'Low disk space → new downloads/recordings to that disk are paused.',
+  '— 파일을 정리하거나 설정 → 공통 → 최소 여유 공간을 낮추면 자동으로 다시 받습니다.': '— free up space or lower Settings → Common → Minimum free space and downloads resume automatically.',
+  'YouTube 탭에서 🔑 로그인하거나 동시 다운로드 수를 줄이면 도움이 됩니다.': 'Logging in on the YouTube tab or lowering concurrent downloads helps.',
+  '취소함 — 봇 감지 쉬는 시간이 끝나면 다시 받아 주세요': 'Cancelled — download again after the bot-detection pause ends',
+  '유튜브 차단 신호 감지 →': 'YouTube block signal detected →', '까지 다운로드/확인을 쉽니다.': ' — downloads/checks paused until then.', '불이익 확인 후 지금 재개': 'Resume now (I understand the risk)',
+  '한도 도달 · 유튜브만 대기': 'Limit reached · only YouTube waits', '공간 부족 · 새 다운로드 멈춤': 'Low space · new downloads paused',
+  // 오류 (한국어로 바꾼 것 → 영어)
+  '방송 중이 아님 (방송이 끝나 녹화할 수 없음)': 'Not live (the broadcast ended, can\'t record)', '요청한 화질을 받을 수 없음': 'Requested quality unavailable',
+  '멤버십 전용 (로그인 필요)': 'Members only (login required)', '연령 확인 필요 (로그인 필요)': 'Age verification required (login required)',
+  '유튜브 봇 감지 (잠시 쉬었다 자동 재시도)': 'YouTube bot detection (pausing, retries automatically)', '볼 수 없는 영상 (삭제·비공개)': 'Unavailable video (deleted/private)',
+  '요청이 너무 많음 (잠시 후 재시도)': 'Too many requests (retrying later)', '접근 거부 (403)': 'Access denied (403)', '찾을 수 없음 (404)': 'Not found (404)',
+  '응답 시간 초과 (네트워크)': 'Timed out (network)', '아직 시작 안 한 방송': 'Not started yet', '비공개 영상': 'Private video', '디스크 공간 부족': 'Low disk space',
+  // 서버가 보내는 문구 (로그·오류)
+  '생방송 녹화는 다시 받을 수 없습니다 (끝난 방송은 다시 녹화 안 됨 · 녹화 파일만 지워짐). 치지직 \'다시보기\' 주소로 받으세요': 'Live recordings can\'t be downloaded again (an ended broadcast can\'t be re-recorded · only the file would be deleted). Use the Chzzk replay URL instead',
+  'GPU 가 컨테이너에 연결 안 됨 → 서버에 NVIDIA 드라이버 + NVIDIA Container Toolkit 설치,': 'GPU not attached to the container → install the NVIDIA driver + NVIDIA Container Toolkit on the server,',
+  '성인 인증 필요 — 치지직 로그인(성인 인증된 계정) 후 \'다시 받기\' (자동 재시도 안 함)': 'Age verification required — log in to Chzzk (verified account), then "Download again" (no auto retry)',
+  '아직 미리보기를 만들 수 없습니다 (받기 시작 직후이거나, 끝까지 받아야 열리는 형식)': 'Can\'t make a preview yet (just started, or a format that opens only when complete)',
+  '모든 조각이 \'완료\'이고 파일이 있어야 합칠 수 있습니다 (녹화 중·오류·파일 없음)': 'All parts must be "done" with files present to merge (recording/error/missing file)',
+  '없음 (서버에 인텔 내장 그래픽이 없음, 또는 맥·윈도우 Docker Desktop)': 'missing (no Intel integrated graphics on the server, or Mac/Windows Docker Desktop)',
+  '조각마다 영상 형식(코덱·해상도)이 달라 그대로는 이어 붙일 수 없습니다': 'Parts have different video formats (codec/resolution) and can\'t be joined as-is',
+  '로그인이 안 된 상태입니다. 브라우저에서 로그인을 끝낸 뒤 눌러주세요': 'Not logged in yet. Finish logging in in the browser, then press this',
+  '브라우저가 열려 있지 않습니다. \'브라우저 열기\'부터 해주세요 (': 'The browser isn\'t open. Press "Open browser" first (',
+  '이미지에 브라우저가 없습니다. 새 버전으로 다시 빌드하세요': 'The image has no browser. Rebuild with the new version',
+  '녹화 조각 합치기 실패 (원본 조각은 그대로):': 'Merging recording parts failed (original parts kept):', '생방송 녹화로 받은 방송이라 다시보기는 건너뜀:': 'Skipped replay (already recorded live):',
+  '로그인 완전 초기화 (쿠키·브라우저 기록 삭제)': 'Login reset (cookies and browser data deleted)', '이미 합치는 중입니다 (끝나면 로그에 표시)': 'Already merging (shown in the log when done)',
+  '디스크 공간 부족 → 새 다운로드 멈춤:': 'Low disk space → new downloads paused:', '개 생성 (Jellyfin/Kodi 용)': ' created (for Jellyfin/Kodi)',
+  '압축해도 작아지지 않아 원본 화질 유지:': 'Compression didn\'t make it smaller, kept original:', '인코딩 실패 → CPU 로 다시 시도:': 'Encoding failed → retrying on CPU:',
+  '예정된 라이브, 시작 후 다시 확인:': 'Scheduled live, will check again after it starts:', '이 프로그램의 백업 파일이 아닙니다': 'Not a backup file of this program',
+  '파일이 없습니다 (삭제·이동됨)': 'File is missing (deleted/moved)', '파일 없음 (삭제/이동됨)': 'File missing (deleted/moved)', '다운로드 점검 완료: 놓친 영상': 'Audit done: missed videos',
+  '개 다시 압축해서 합치는 중:': ' parts being re-encoded and merged:', '브라우저 로그인 → 쿠키 저장': 'Browser login → cookies saved', '녹화 끊김 → 이어서 녹화 (': 'Recording cut → continuing (',
+  '로그아웃 (저장된 쿠키 삭제)': 'Logged out (saved cookies deleted)', '업데이트를 위해 재시작합니다': 'Restarting to update', '개 추가 (오래된 영상부터)': ' added (oldest first)',
+  '치지직 방송 시작 → 녹화:': 'Chzzk live started → recording:', '분간 다운로드/확인 일시정지': ' min pause of downloads/checks', '쿠키를 읽을 수 없습니다:': 'Can\'t read cookies:',
+  '받는 중인 영상이 아닙니다': 'Not downloading', '오류 (30초 후 계속):': 'error (continuing in 30s):', '기존 영상 가져오기 실패:': 'Fetching existing videos failed:',
+  '요청한 화질을 못 받음 →': 'Requested quality unavailable →', '유튜브 봇 감지로 쉬는 중': 'Paused due to YouTube bot detection', '치지직 채널 조회 실패:': 'Chzzk channel lookup failed:',
+  '개를 영상별 폴더로 정리': ' moved into per-video folders', '기존 영상 가져오는 중:': 'Fetching existing videos:', '기존 영상 가져오기:': 'Fetched existing videos:',
+  '받으면서 압축 실패(': 'Compress-while-downloading failed (', '녹화 중지 → 저장:': 'Recording stopped → saved:', '분 이상이어야 합니다': ' min or more required',
+  '합칠 조각이 없습니다': 'No parts to merge', '개 추가, 파일 문제': ' added, file problems', '영상 인코딩 장치:': 'Video encoder:', '다운로드 점검 시작': 'Audit started',
+  '재생 불가 (손상)': 'Unplayable (corrupt)', '유튜브 조회 실패:': 'YouTube lookup failed:', '일시정지 수동 해제': 'Pause lifted manually', '라이브 녹화 시작:': 'Live recording started:',
+  '백업 불러옴: 설정': 'Backup restored: settings', '임시파일 삭제 실패': 'Failed to delete temp file', '선택지에 없는 값': 'not an allowed value', '로그인 쿠키 저장': 'Login cookies saved',
+  '썸네일 파일 없음': 'No thumbnail file', '길이가 맞지 않음': 'length mismatch', '(녹화분 보존)': '(recording kept)', '압축 임시파일': 'compression temp files', '합치기 실패:': 'Merge failed:',
+  '번째 파일):': ' file):', '잘못된 설정:': 'Invalid settings:', '사용 안 됨:': 'Not used:', '구독 확인:': 'Subscription check:', '저장 실패:': 'Save failed:', '구독 추가:': 'Subscribed:',
+  '— 새 영상': '— new videos', '알 수 없음': 'unknown', '녹화 조각': 'Recording parts', '기존 영상': 'Existing videos', '빈 파일': 'Empty file', '개 합침': ' merged', '개 정리': ' cleaned',
+  '(오류:': '(error:', '완료:': 'Done:', '취소:': 'Cancelled:', '다시:': 'again:', '시작됨': 'Started', '오류:': 'Error:', '내부 오류:': 'Internal error:', '확인 오류:': 'Check error:',
+  '(설치됨': '(installed', 'CPU 만 사용': 'CPU only', '예: 10M (비우면 무제한)': 'e.g. 10M (empty = unlimited)', '예: 4,16': 'e.g. 4,16', '예: 128k': 'e.g. 128k',
+  // 짧은 낱말 (긴 문구 뒤에 적용)
+  '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
+  '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
+  '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '일시정지됨': 'Paused', '일시정지 (': 'Paused (', '일시정지': 'Pause', '재개': 'Resume', '조회 중...': 'Looking up...',
+  '확인 중...': 'Checking...', '저장 중...': 'Saving...', '점검 중': 'Auditing', '진행 중': 'In progress', '오류·취소': 'Errors', '다시 시도': 'Retry', '봇 감지': 'Bot detection', '봇 확인': 'bot check',
+  '새 영상': 'new videos', '다시보기': 'Replays', '생방송': 'Live', '동영상': 'Videos', '숏츠': 'Shorts', '라이브': 'Live', '압축 중': 'Compressing', '조회수': 'Views', '업로드': 'Uploaded',
+  '메모리': 'Memory', '디스크': 'Disk', '시스템': 'System', '재시도': 'Retried', '마지막': 'Last', '페이지': 'page', '해상도': 'Resolution', '로그인': 'Login', '유튜브': 'YouTube',
+  '치지직': 'Chzzk', '네이버': 'Naver', '구글': 'Google', '저장됨': 'Saved', '무제한': 'Unlimited', '형식': 'Format', '놓친': 'missed', '합계': 'Total', '표준': 'Standard', '설치': 'Install',
+  '다음': 'Next', '전체': 'All', '빠짐': 'missing', '취소': 'Cancel', '종류': 'Type', '방금': 'just now', '쿠키': 'Cookies', '대기': 'Queued', '설정': 'Settings', '포기': 'Gave up', '버전': 'Version',
+  '경로': 'Path', '오늘': 'today', '자막': 'Subtitles', '최고': 'Best', '원본': 'Original', '화질': 'Quality', '녹화': 'Recording', '시간': 'Time', '없음': 'None', '지점': 'mark', '확인': 'Check',
+  '채널': 'Channel', '주소': 'URL', '삭제': 'Delete', '남음': 'left', '저장': 'Save', '처리': 'processed', '공통': 'Common', '링크': 'Link', '압축': 'Compression', '시작': 'start', '조각': 'parts',
+  '코어': 'cores', '오류': 'Errors', '남은': 'left', '상태': 'Status', '끄기': 'Off', '끔)': 'off)', '닫기': 'Close', '관리': 'Manage', '길이': 'Length', '완료': 'Done', '옵션': 'Options', '선택': 'Select',
+  '엔비디아': 'NVIDIA', '기본 런타임으로 설정:': 'set it as the default runtime:', '→ 도커 재시작': '→ restart Docker', '그래픽카드': 'GPU',
+  '기타': 'Other', '최신': 'latest', '다운로드': 'Download', '개 중': ' of', '까지)': 'until)', '30분': '30 min', '1시간': '1 h', '3시간': '3 h', '6시간': '6 h', '안 됨': 'no', '곧': 'soon',
+};
+// 숫자 + 단위: 5분 전 → 5 min ago, 3개 → 3, 2번째 → #2
+const EN_RULES = [[/(\d+)시간 (\d+)분/g, '$1h $2m'], [/(\d+)분 (\d+)초/g, '$1m $2s'], [/(\d+)\s?번째/g, '#$1'], [/(\d+)\s?시간/g, '$1h'], [/(\d+)\s?분/g, '$1 min'],
+  [/(\d+)\s?초/g, '$1s'], [/(\d+)\s?일/g, '$1 days'], [/(\d+)\s?개/g, '$1'], [/(\d+)\s?번/g, '$1 times'], [/(\d+)\s?명/g, '$1'], [/(\d+\s?(?:min|h|s|days|m)) 후/g, 'in $1'],
+  [/(\d+\s?(?:min|h|s|days|m)) 전/g, '$1 ago'], [/약 (\d)/g, 'about $1']];
+const EN_RE = new RegExp(Object.keys(EN).sort((a, b) => b.length - a.length).map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+const trText = t => {
+  if (LANG !== 'en' || !/[가-힣]/.test(t)) return t;
+  t = t.replace(EN_RE, m => EN[m]);
+  for (const [re, to] of EN_RULES) t = t.replace(re, to);
+  return t;
+};
+function trTree(root) {  // root 아래 글자·placeholder·title 을 영어로 (translate="no" 안은 건드리지 않음)
+  if (LANG !== 'en' || !root) return;
+  if (root.nodeType === 3) { if (!root.parentElement?.closest('[translate=no],script,style')) { const t = trText(root.data); if (t !== root.data) root.data = t; } return; }
+  if (root.nodeType !== 1 || root.closest('[translate=no],script,style')) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: n => n.nodeType === 1 && (n.matches('[translate=no],script,style')) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  for (let n = root; n; n = w.nextNode()) {
+    if (n.nodeType === 3) { const t = trText(n.data); if (t !== n.data) n.data = t; continue; }
+    for (const a of ['placeholder', 'title']) if (n.hasAttribute(a)) { const v = n.getAttribute(a), t = trText(v); if (t !== v) n.setAttribute(a, t); }
+  }
+}
+if (LANG === 'en') {
+  document.documentElement.lang = 'en';
+  const alert0 = window.alert.bind(window), confirm0 = window.confirm.bind(window);
+  window.alert = m => alert0(trText(String(m)));
+  window.confirm = m => confirm0(trText(String(m)));
+  document.addEventListener('DOMContentLoaded', () => {
+    document.title = trText(document.title);
+    trTree(document.body);
+    new MutationObserver(ms => ms.forEach(m => m.type === 'characterData' ? trTree(m.target) : m.addedNodes.forEach(trTree)))
+      .observe(document.body, { childList: true, subtree: true, characterData: true });
+  });
+}
+document.addEventListener('DOMContentLoaded', () => { const b = document.getElementById('langbtn'); b.textContent = LANG === 'en' ? '한국어' : 'English'; b.setAttribute('translate', 'no'); });
+function setLang(l) { try { localStorage.setItem('lang', l); } catch { /* 저장 못 하면 이번만 */ } location.reload(); }
+</script>
+<script>
+// 화질 프리셋: [이름, 설명, 코덱 묶음]. 값(CRF 등)은 서버 QUALITY 에 있음
+const Q = {
+  // 설명의 % = 원본 대비 용량 (조용한 영상 / 움직임 많은 영상), 실측 기준
+  h265_best: ['원본급', '원본과 구분 어려움 · 용량 86% / 100%', 'h265'],
+  high: ['고화질', '거의 원본 그대로 · 용량 77% / 93%', 'h265'],
+  standard: ['표준 (추천)', '조용한 영상은 원본급, 빠른 장면 아주 약간 · 용량 69% / 73%', 'h265'],
+  small: ['용량 절약', '빠른 장면(게임 등)에서 뭉개짐 보임 · 용량 56% / 58%', 'h265'],
+  h264_best: ['원본급', '거의 원본 그대로 · 용량은 원본 정도 (줄지 않음)', 'h264'],
+  compat: ['표준', '원본 정도 화질 · 용량은 원본 정도 (줄지 않음) · 호환성용', 'h264'],
+  av1: ['고효율', 'AV1 하드웨어 압축 · 화질은 H.265 표준 이상, 용량은 원본의 약 45% · 2020년 이전 TV·기기는 재생 안 될 수 있음', 'av1'],
+  original: ['원본 그대로', '재압축 없음 · 화질 손실 0 · 용량 가장 큼', 'etc'],
+  custom: ['직접 설정', '공통 탭 → 고급 설정의 코덱·CRF·최대 크기', 'etc'],
+};
+const QG = [['h265', 'H.265 (추천)', '같은 화질에 H.264 보다 훨씬 작음 · 2016년 이후 TV·폰·Plex 대부분 재생'],
+            ['h264', 'H.264', '거의 모든 기기에서 재생 · 대신 용량이 큼'],
+            ['av1', 'AV1', '하드웨어 AV1 인코더가 있을 때만 · 가장 작음'], ['etc', '기타', '다시 압축하지 않고 받은 그대로 저장하거나, 코덱·CRF 를 직접 정함']];
+// 코덱 토글 [H.265 | H.264 | AV1 | 기타] → 고른 코덱의 프리셋만 보임 (선택은 토글을 바꿔도 유지)
+const qCards = name => `<div class="seg qtabs">${QG.map(([g, t]) => `<button type="button" data-g="${g}" onclick="qTab(this)">${t}</button>`).join('')}</div>`
+  + QG.map(([g, , d]) => `<div class="qgroup" data-qgroup="${g}" hidden><div class="mute" style="margin:8px 0 6px">${d}</div>
+  <div class="choices">${Object.entries(Q).filter(([, v]) => v[2] === g).map(([k, [tt, dd]]) =>
+    `<label><input type="radio" name="${name}" value="${k}"><b>${tt}</b><span>${dd}</span></label>`).join('')}</div></div>`).join('');
+function qTab(btn) {
+  const box = btn.closest('[data-popts]');
+  box.querySelectorAll('.qtabs button').forEach(b => b.classList.toggle('on', b === btn));
+  box.querySelectorAll('.qgroup').forEach(x => x.hidden = x.dataset.qgroup !== btn.dataset.g);
+}
+const qName = k => Q[k] ? (Q[k][2] === 'etc' ? '' : QG.find(([g]) => g === Q[k][2])[1].split(' ')[0] + ' ') + Q[k][0] : k;
+const qOptions = first => `<option value="">${first}</option>` + QG.map(([g, t]) => `<optgroup label="${t}">${Object.entries(Q)
+  .filter(([, v]) => v[2] === g).map(([k, [tt]]) => `<option value="${k}">${g === 'etc' ? '' : t.split(' ')[0] + ' '}${tt}</option>`).join('')}</optgroup>`).join('');
+const RES = [['0', '최고'], ['2160', '4K'], ['1440', '1440p'], ['1080', '1080p'], ['720', '720p'], ['480', '480p']];
+const IV = [['30', '30분마다'], ['60', '1시간마다'], ['180', '3시간마다'], ['360', '6시간마다'], ['720', '12시간마다'], ['1440', '하루 한 번']];
+const KINDS = { videos: '동영상', shorts: '숏츠', streams: '라이브' };
+const LABEL = { queued: '대기', downloading: '다운로드 중', recording: '라이브 녹화 중', compressing: '압축 중', done: '완료', error: '오류', cancelled: '취소됨' };
+const api = (u, o = {}) => fetch(u, { headers: { 'Content-Type': 'application/json' }, ...o })
+  .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText); return r.json(); });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const thumb = (id, q = 'mqdefault') => `https://i.ytimg.com/vi/${encodeURIComponent(id)}/${q}.jpg`;
+const size = b => b ? (b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB' : (b / 1048576).toFixed(1) + ' MB') : '-';
+const dur = s => s ? new Date(s * 1000).toISOString().slice(s >= 3600 ? 11 : 14, 19) : '-';
+const date = d => d ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}` : '-';
+const clock = t => new Date(t * 1000).toLocaleString(LOC, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const rel = t => {
+  const m = Math.round((t * 1000 - Date.now()) / 60000), a = Math.abs(m);
+  const txt = a < 1 ? '곧' : a < 60 ? `${a}분` : a < 1440 ? `${Math.floor(a / 60)}시간 ${a % 60}분` : `${Math.floor(a / 1440)}일`;
+  return a < 1 ? (m >= 0 ? '1분 내' : '방금') : txt + (m >= 0 ? ' 후' : ' 전');
+};
+const options = (list, first) => (first ? `<option value="">${first}</option>` : '') + list.map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+const ivName = v => IV.find(([k]) => k === String(v))?.[1] || `${v}분마다`;
+let tab = 'youtube', SEL = {}, SUBS = {}, SET = {};
+const PLATFORMS = ['youtube', 'chzzk'];
+const platOf = u => (u || '').includes('chzzk.naver.com') ? 'chzzk' : 'youtube';
+const COOKIE_HOWTO = (site, extra) => `<ol>
+  <li>크롬·엣지·파이어폭스에 확장 프로그램 <b>Get cookies.txt LOCALLY</b> 설치</li>
+  <li>${site} 에 <b>멤버십 가입·성인 인증된 계정</b>으로 로그인 ${extra}</li>
+  <li>그 탭에서 확장 프로그램 → <b>Export</b> → 받은 cookies.txt 를 아래에 붙여넣거나 파일 선택 → 저장 → 로그인 확인</li></ol>`;
+const PLAT = {
+  youtube: { name: 'YouTube', logo: '<i class="dl"></i>YouTube', kinds: { videos: '동영상', shorts: '숏츠', streams: '라이브' },
+    dl: '영상 / 숏츠 / 라이브 / 재생목록 / 채널 주소', dlph: 'https://www.youtube.com/watch?v=...',
+    subph: 'https://www.youtube.com/@채널 또는 재생목록 주소',
+    howto: COOKIE_HOWTO('youtube.com', '(<b>시크릿 창</b>에서 로그인하고, 내보낸 뒤 그 창을 바로 닫기 — 계속 쓰면 유튜브가 쿠키를 바꿔 무효가 됨)') },
+  chzzk: { name: '치지직', logo: '<i class="czi"></i><b class="cz">CHZZK</b>', kinds: { videos: '다시보기', streams: '생방송' },
+    dl: '다시보기 / 생방송 / 채널 주소', dlph: 'https://chzzk.naver.com/video/12345  또는  https://chzzk.naver.com/live/채널ID',
+    subph: 'https://chzzk.naver.com/채널ID',
+    howto: COOKIE_HOWTO('chzzk.naver.com', '(네이버 로그아웃하면 쿠키가 무효가 되니 로그아웃하지 말고 창만 닫기)') },
+};
+
+// 플랫폼 탭 화면 (두 탭 같은 틀, 아이디만 플랫폼별로 따로 → 서로 독립)
+function buildPlatform(p) {
+  const P = PLAT[p];
+  document.querySelector(`[data-platform=${p}]`).innerHTML = `
+  <div class="platform-head">
+    <span class="logo">${P.logo}</span><span class="grow"></span>
+    <span id="${p}-login"></span><span id="${p}-chk"></span>
+    <button class="sm" onclick="togglePanel('${p}','login')">🔑 로그인</button>
+  </div>
+  <section id="${p}-login-panel" hidden>
+    <h2>로그인 <span class="mute">멤버십 전용 · 성인 인증 영상을 받으려면 필요</span></h2>
+    <ol class="mute">
+      <li><b>브라우저 열기</b> → 새 창에 서버 속 브라우저가 뜸 → ${p === 'chzzk' ? '네이버' : '구글'} 계정으로 평소처럼 로그인 (2단계 인증도 그대로${p === 'chzzk' ? ', <b>로그인 상태 유지</b> 체크 · QR 로그인도 가능' : ''})</li>
+      <li>로그인이 끝나면 여기서 <b>로그인 완료</b> → 브라우저가 닫히고 로그인 정보가 저장됨</li></ol>
+    <div class="row" style="justify-content:flex-start">
+      <button class="primary" onclick="browserLogin('${p}')">브라우저 열기</button>
+      <button class="primary" onclick="browserDone('${p}')">로그인 완료</button>
+      <button onclick="checkLogin('${p}')">로그인 확인</button>
+      <button onclick="delLogin('${p}')">로그아웃(저장 삭제)</button>
+      <button class="danger" onclick="resetLogin()">로그인 완전 초기화</button>
+    </div>
+    <details class="more"><summary>또는 cookies.txt 직접 넣기</summary>
+      <div class="mute">${P.howto}</div>
+      <textarea id="${p}-cookie" rows="4" placeholder="cookies.txt 내용 붙여넣기"></textarea>
+      <div class="row" style="justify-content:flex-start; margin-top:8px">
+        <input type="file" accept=".txt,text/plain" onchange="readCookie('${p}', this)">
+        <button onclick="saveLogin('${p}')">저장</button>
+      </div>
+    </details>
+  </section>
+  <section>
+    <form class="add" data-p="${p}" data-sub onsubmit="add(event,'/api/download',this)">
+      <input type="url" name="url" placeholder="${P.dlph}" required title="다운로드: ${P.dl} · 구독: 채널${p === 'youtube' ? ' 또는 재생목록' : ''} 주소">
+      <button class="primary">다운로드</button>
+      <button type="button" onclick="this.form.reportValidity() && add(event,'/api/subs',this.form)">＋ 구독</button>
+      <details class="more"><summary>옵션</summary><div class="opts" data-opts></div></details>
+    </form>
+    <div class="mute msg"></div>
+  </section>
+  <div class="seg">
+    <button class="on" data-view="jobs" onclick="setView('${p}','jobs')">다운로드 목록</button>
+    <button data-view="subs" onclick="setView('${p}','subs')">구독 채널 <span id="${p}-subcount"></span></button>
+  </div>
+  <section id="${p}-view-jobs">
+    <div class="toolbar">
+      <div class="filters" id="${p}-filters"></div>
+      <input type="search" name="search" placeholder="제목 · 채널 검색" oninput="setFilter('${p}', null, this.value)">
+      <select title="정렬 (대기 목록은 받을 순서)" onchange="VIEW.${p}.sort = this.value; setFilter('${p}', null)">
+        <option value="new">최근 추가순</option><option value="old">오래된 추가순</option><option value="upload">업로드 날짜순</option>
+        <option value="title">제목순</option><option value="channel">채널순</option><option value="size">용량 큰 순</option><option value="duration">길이 긴 순</option></select>
+      <button class="sm" id="${p}-selbtn" onclick="toggleSelect('${p}')">선택</button>
+    </div>
+    <div class="selbar" id="${p}-selbar" hidden>
+      <button class="sm" onclick="selectAll('${p}')">보이는 것 전체 선택</button>
+      <b id="${p}-selcount">0개 선택</b>
+      <button class="sm" onclick="bulk('${p}','top')">맨 앞으로 <span class="mute">(대기만)</span></button>
+      <button class="sm" onclick="bulk('${p}','cancel')">취소</button>
+      <button class="sm" onclick="bulk('${p}','retry')">다시 받기 <span class="mute">(오류·취소만)</span></button>
+      <button class="sm" onclick="bulk('${p}','delete')">목록에서 삭제</button>
+    </div>
+    <div id="${p}-all" class="vids"></div>
+    <div class="pager" id="${p}-pager"></div>
+  </section>
+  <section id="${p}-view-subs" hidden>
+    <div id="${p}-subs" class="subs"></div>
+    <div id="${p}-subwrap" hidden style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line)">
+      <div class="row"><h2 id="${p}-subname" style="margin:0" translate="no"></h2><span id="${p}-subacts"></span></div>
+      <div id="${p}-subsched" class="mute" style="margin-top:4px"></div>
+      <form id="${p}-subform" data-p="${p}" data-sub onsubmit="saveSub(event)" style="margin:12px 0">
+        <div class="opts" data-opts></div>
+        <button>이 채널 설정 저장</button><span class="mute">대기 중인 영상부터 적용</span>
+      </form>
+      <div id="${p}-subvids" class="vids"></div>
+    </div>
+  </section>`;
+}
+PLATFORMS.forEach(buildPlatform);
+
+function togglePanel(p, name) {
+  const el = document.getElementById(`${p}-${name}-panel`);
+  el.hidden = !el.hidden;
+}
+function setView(p, v) {
+  document.querySelectorAll(`[data-platform=${p}] .seg button`).forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  document.getElementById(`${p}-view-jobs`).hidden = v !== 'jobs';
+  document.getElementById(`${p}-view-subs`).hidden = v !== 'subs';
+}
+
+// 화질/해상도/저장 경로(+ 구독 폼은 확인 주기/받을 영상)
+function fillOpts(form) {
+  const p = form.dataset.p, dflt = `${PLAT[p].name} 설정 따름`;
+  form.querySelector('[data-opts]').innerHTML = `
+    <label>화질<select name="quality">${qOptions(dflt)}</select></label>
+    <label>해상도<select name="max_height">${options(RES, dflt)}</select></label>
+    <label class="path">저장 경로 <span class="mute">상대 경로 또는 서버 절대 경로 (/로 시작)</span>
+      <input name="folder" placeholder="${dflt}  예) /volume1/video/${P_NAME(p)}" oninput="preview(this.form)"></label>
+    ${form.querySelector('[data-preview]') ? '' : '<div class="mute" data-preview style="width:100%"></div>'}
+    ${'sub' in form.dataset ? `${form.classList.contains('add') ? '<div class="note">구독할 때만 적용</div>' : ''}
+    <label>확인 주기<select name="interval_min">${options(IV, '설정 탭 기본값')}</select></label>
+    <div class="checks">받을 영상: ${Object.entries(PLAT[p].kinds).map(([k, v]) => `<label><input type="checkbox" name="kind" value="${k}" ${k === 'videos' ? 'checked' : ''}>${v}</label>`).join('')}</div>
+    ${form.classList.contains('add') ? `<div class="checks"><label><input type="checkbox" name="backfill">기존 영상 전부 받기 (처음 영상부터${p === 'youtube' ? ' · 하루 최대 개수만큼씩' : ''})</label>
+      <span class="mute">끄면 최신 영상 몇 개부터</span></div>` : ''}` : ''}`;
+  const sync = () => form.max_height.disabled = form.quality.value === 'original';
+  form.quality.onchange = sync;
+  form.sync = sync;
+}
+function P_NAME(p) { return PLAT[p].name === '치지직' ? 'Chzzk' : 'YouTube'; }
+document.querySelectorAll('form:has([data-opts])').forEach(fillOpts);
+document.querySelector('#settings [name=check_interval_min]').innerHTML = options(IV);
+
+const optsOf = f => ({
+  quality: f.quality.value, max_height: f.max_height.disabled ? '' : f.max_height.value, folder: f.folder.value.trim(),
+  ...(f.interval_min && { interval_min: f.interval_min.value, kinds: [...f.querySelectorAll('[name=kind]:checked')].map(x => x.value).join(',') }),
+});
+const tags = s => [s.quality && qName(s.quality), s.quality !== 'original' && RES.find(([k]) => k === s.max_height)?.[1], s.folder && '경로: ' + s.folder]
+  .filter(Boolean).map(t => `<span class="tag">${esc(t)}</span>`).join('') || '<span class="tag">설정 기본값</span>';
+const kindTags = s => (s.kinds || 'videos').split(',').map(k => `<span class="tag">${PLAT[platOf(s.url)].kinds[k] || KINDS[k]}</span>`).join('');
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  tab = b.dataset.tab;
+  document.body.dataset.theme = PLATFORMS.includes(tab) ? tab : 'base';  // 상태·설정도 같은 글꼴·모양 (색만 기본)
+  if (PLATFORMS.includes(tab)) loadLogin();
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('[data-page]').forEach(pg => pg.hidden = pg.dataset.page !== tab);
+  refresh();
+});
+document.body.dataset.theme = 'youtube';
+
+// 실제로 저장될 위치 미리보기 ('/' 로 시작하면 서버 절대 경로 그대로)
+function preview(form) {
+  const el = form.querySelector('[data-preview]');
+  if (!el) return;
+  const p = form.dataset.p;
+  let base = form.folder.value.trim();
+  if (!base && form.id !== 'settings') base = SET[`${p}_folder`] || SET.folder || '';
+  const per = (form.video_folder ? form.video_folder.value : SET.video_folder) !== '0';
+  const root = base.startsWith('/') ? base.replace(/\/+$/, '') : '다운로드 폴더' + (base ? '/' + base : '');
+  el.textContent = p === 'chzzk' ? `저장 위치: ${root}/스트리머/${per ? '날짜 - 제목/' : ''}날짜 - 제목 [ID].mp4`
+                                 : `저장 위치: ${root}/채널명/Season 연도/${per ? '영상이름/' : ''}영상이름.mp4`;
+}
+
+function setStab(s) {  // 설정 탭 안의 공통 / YouTube / 치지직
+  document.querySelectorAll('.stabs button').forEach(b => b.classList.toggle('on', b.dataset.stab === s));
+  document.querySelectorAll('[data-stab-page]').forEach(x => x.hidden = x.dataset.stabPage !== s);
+  document.getElementById('settings').dataset.stab = s;  // 저장 버튼도 그 탭 색으로
+}
+// 설정 탭 YouTube / 치지직: 각자 화질(코덱별 카드)·최대 해상도·저장 경로 (키: youtube_quality 등)
+document.querySelectorAll('[data-popts]').forEach(el => {
+  const p = el.dataset.popts;
+  el.innerHTML = `<h3 class="sg">화질</h3>${qCards(p + '_quality')}
+    <h3 class="sg">저장</h3>
+    <div class="grid">
+      <label>최대 해상도<select name="${p}_max_height">${options(RES)}</select></label>
+      <label>저장 경로<input name="${p}_folder" placeholder="예) ${P_NAME(p)}  또는 서버 절대 경로 /volume1/video/${P_NAME(p)}"></label>
+    </div>`;
+});
+
+// 로그인 (브라우저에서 내보낸 cookies.txt)
+async function loadLogin() {
+  const st = await api('/api/login').catch(() => null);
+  if (!st) return;
+  for (const p of PLATFORMS) {
+    const s = st[p];
+    // 로그인한 지 오래되면(설정 → 공통 → 로그인 갱신 주기) 유튜브가 쿠키를 무효로 만들 수 있어 다시 로그인 안내
+    const age = s.saved ? Math.floor((Date.now() / 1000 - s.updated) / 86400) : 0, limit = +(SET.login_refresh_days || 0);
+    document.getElementById(`${p}-login`).innerHTML = !s.saved ? '<span class="badge">로그인 안 됨</span>' : !s.login_cookie ? '<span class="badge">로그인 쿠키 없음</span>'
+      : limit && age >= limit ? `<span class="badge warn" title="로그인한 지 ${age}일 · 🔑 로그인 → 브라우저 열기로 다시 로그인">로그인 ${age}일 지남 · 다시 로그인 권장</span>`
+      : `<span class="badge on" title="쿠키 ${s.count}개${s.expires ? ' · 만료 ' + new Date(s.expires * 1000).toLocaleDateString(LOC) : ''}">로그인됨 · ${age ? age + '일 전' : '오늘'}</span>`;
+  }
+}
+function readCookie(p, inp) { const f = inp.files[0]; if (f) f.text().then(t => document.getElementById(`${p}-cookie`).value = t); }
+async function saveLogin(p) {
+  const box = document.getElementById(`${p}-cookie`), text = box.value.trim();
+  if (!text) return alert('cookies.txt 내용을 넣어주세요');
+  try {
+    await api('/api/login/' + p, { method: 'PUT', body: JSON.stringify({ text }) });
+    box.value = ''; await loadLogin(); checkLogin(p);
+  } catch (err) { alert('실패: ' + err.message); }
+}
+async function checkLogin(p) {
+  const el = document.getElementById(`${p}-chk`);
+  el.innerHTML = '<span class="mute">확인 중...</span>';
+  const r = await api(`/api/login/${p}/check`, { method: 'POST' }).catch(e => ({ ok: false, error: e.message }));
+  el.innerHTML = r.ok ? `<span class="badge on">✓ 로그인됨${r.name ? ' · ' + esc(r.name) : ''}</span>`
+                      : `<span class="err">✗ 로그인 안 됨${r.error ? ' — ' + esc(r.error) : ''}</span>`;
+}
+async function browserLogin(p) {
+  const w = window.open('', 'login-browser');  // 클릭 직후 열어야 팝업 차단에 안 걸림
+  try { w.location = (await api(`/api/login/${p}/browser`, { method: 'POST' })).url; }
+  catch (err) { w.close(); alert('실패: ' + err.message); }
+}
+async function browserDone(p) {
+  const el = document.getElementById(`${p}-chk`);
+  el.innerHTML = '<span class="mute">저장 중...</span>';
+  try {
+    await api(`/api/login/${p}/browser/done`, { method: 'POST' });
+    window.open('', 'login-browser')?.close();
+    await loadLogin(); checkLogin(p);
+  } catch (err) { el.innerHTML = `<span class="err">✗ ${esc(err.message)}</span>`; }
+}
+async function delLogin(p) {
+  if (!confirm('저장된 로그인 쿠키를 지울까요?')) return;
+  await api('/api/login/' + p, { method: 'DELETE' });
+  document.getElementById(`${p}-chk`).innerHTML = '';
+  loadLogin();
+}
+async function resetLogin() {
+  if (!confirm('유튜브·치지직 로그인 정보와 로그인용 브라우저 기록(구글·네이버 로그인 상태)을 전부 지울까요?\n로그인이 꼬였을 때 처음부터 다시 로그인하는 용도입니다.')) return;
+  await api('/api/login/reset', { method: 'POST' });
+  PLATFORMS.forEach(p => document.getElementById(`${p}-chk`).innerHTML = '');
+  loadLogin(); alert('초기화했습니다. 🔑 로그인 → 브라우저 열기로 다시 로그인해 주세요');
+}
+
+async function restoreBackup(inp) {
+  const f = inp.files[0]; inp.value = '';
+  if (!f || !confirm('백업의 설정으로 덮어쓰고, 없는 구독 채널을 추가할까요?')) return;
+  try {
+    const r = await api('/api/restore', { method: 'POST', body: await f.text() });
+    document.getElementById('bakmsg').textContent = `설정 ${r.settings}개 적용, 구독 ${r.subs}개 추가`;
+    loadSettings();
+  } catch (e) { document.getElementById('bakmsg').textContent = '실패: ' + e.message; }
+}
+async function organize(b) {
+  if (!confirm('이미 받은 영상을 영상별 폴더로 옮길까요? (영상·썸네일·자막·nfo 를 함께 이동)')) return;
+  b.disabled = true;
+  const r = await api('/api/organize', { method: 'POST' }).catch(e => ({ error: e.message }));
+  document.getElementById('orgmsg').textContent = r.error ? '실패: ' + r.error : `${r.moved}개 정리함`;
+  b.disabled = false;
+}
+
+async function add(e, url, f) {
+  e.preventDefault();
+  const msg = f.parentElement.querySelector('.msg'); msg.textContent = '조회 중...';
+  try {
+    const backfill = url === '/api/subs' && !!f.backfill?.checked, body = { url: f.url.value, ...optsOf(f), backfill };
+    let r;
+    try { r = await api(url, { method: 'POST', body: JSON.stringify(body) }); }
+    catch (err) {  // 유튜브 봇 감지로 쉬는 중 → 불이익 확인하면 재개하고 받기
+      if (!err.message.includes('봇 감지')) throw err;
+      if (!confirm(BOT_RISK)) return msg.textContent = '취소함 — 봇 감지 쉬는 시간이 끝나면 다시 받아 주세요';
+      r = await api(url, { method: 'POST', body: JSON.stringify({ ...body, force: true }) });
+    }
+    msg.textContent = r.added !== undefined ? `${r.name}: ${r.added}개 추가됨`
+      : `구독 추가: ${r.name} (${backfill ? '기존 영상 전부 가져오는 중 · 오래된 영상부터' : '1분 내 첫 확인'})`;
+    if (r.added === undefined && f.dataset.p) setView(f.dataset.p, 'subs');
+    f.url.value = ''; refresh();
+  } catch (err) { msg.textContent = '실패: ' + err.message; }
+}
+
+const left = s => s >= 3600 ? `${Math.floor(s / 3600)}시간 ${Math.floor(s % 3600 / 60)}분` : s >= 60 ? `${Math.floor(s / 60)}분 ${Math.floor(s % 60)}초` : `${Math.round(s)}초`;
+// 받는 중: "받은 양 / 전체 (%) · 남은 양 · 속도 · 남은 시간" (녹화는 전체 크기를 몰라 받은 양·속도만)
+const prog = j => [
+  j.total ? `${size(j.bytes)} / ${size(j.total)} (${(j.progress || 0).toFixed(0)}%)` : j.streaming ? `${(j.progress || 0).toFixed(0)}% · 압축본 ${size(j.bytes)}` : j.bytes ? size(j.bytes) : '',
+  j.total ? `남은 ${size(Math.max(j.total - (j.bytes || 0), 0))}` : '',
+  j.speed ? `${(j.speed / 1048576).toFixed(1)} MB/s` : '',
+  j.eta ? `약 ${left(j.eta)} 남음` : '',
+].filter(Boolean).join(' · ');
+
+// 다운로드 목록 보기 상태 (플랫폼별): 상태 필터 · 검색어 · 선택 모드(선택한 id)
+const VIEW = Object.fromEntries(PLATFORMS.map(p => [p, { status: '', search: '', sort: 'new', sel: null, ids: [], page: 1 }]));
+const PER = 60;  // 한 페이지 영상 수
+function setFilter(p, k, search) {  // 필터·검색을 바꾸면 1페이지부터
+  if (k !== null) VIEW[p].status = k;
+  if (search !== undefined) VIEW[p].search = search;
+  VIEW[p].page = 1; refresh();
+}
+function renderPager(p, total) {  // « ‹ 1 2 [3] 4 5 › »  (현재 페이지 앞뒤 3개씩)
+  const pages = Math.ceil(total / PER), cur = VIEW[p].page, go = n => `onclick="VIEW.${p}.page=${n}; refresh(); document.getElementById('${p}-all').scrollIntoView()"`;
+  if (pages <= 1) return document.getElementById(`${p}-pager`).innerHTML = '';
+  const nums = [];
+  for (let n = Math.max(1, cur - 3); n <= Math.min(pages, cur + 3); n++) nums.push(`<button class="${n === cur ? 'on' : ''}" ${go(n)}>${n}</button>`);
+  document.getElementById(`${p}-pager`).innerHTML = `<button ${go(1)} ${cur === 1 ? 'disabled' : ''}>«</button><button ${go(Math.max(1, cur - 1))} ${cur === 1 ? 'disabled' : ''}>‹</button>
+    ${nums.join('')}<button ${go(Math.min(pages, cur + 1))} ${cur === pages ? 'disabled' : ''}>›</button><button ${go(pages)} ${cur === pages ? 'disabled' : ''}>»</button>
+    <span class="mute">${total}개 중 ${(cur - 1) * PER + 1}–${Math.min(cur * PER, total)} · 전체 ${pages}페이지</span>`;
+}
+const FILTERS = [['', '전체'], ['active', '진행 중'], ['queued', '대기'], ['done', '완료'], ['error', '오류·취소']];
+const countOf = (c, k) => k === 'active' ? c.downloading || 0 : k === 'error' ? (c.error || 0) + (c.cancelled || 0)
+  : k ? c[k] || 0 : Object.values(c).reduce((a, b) => a + b, 0);
+
+function renderFilters(p, counts) {
+  const v = VIEW[p], quick = { error: ['retry', '보이는 것 전부 다시 받기'], queued: ['cancel', '보이는 대기 전부 취소'] }[v.status];
+  document.getElementById(`${p}-filters`).innerHTML = FILTERS.map(([k, t]) =>
+    `<button class="${v.status === k ? 'on' : ''}" onclick="setFilter('${p}','${k}')">${t} ${countOf(counts, k)}</button>`).join('')
+    + (quick && v.ids.length ? ` <button class="sm" onclick="bulk('${p}','${quick[0]}', VIEW.${p}.ids)">${quick[1]}</button>` : '');
+}
+function toggleSelect(p) {
+  const v = VIEW[p];
+  v.sel = v.sel ? null : new Set();
+  document.getElementById(`${p}-selbar`).hidden = !v.sel;
+  document.getElementById(`${p}-selbtn`).textContent = v.sel ? '선택 끝내기' : '선택';
+  refresh();
+}
+function pickJob(p, id) {
+  const s = VIEW[p].sel;
+  s.has(id) ? s.delete(id) : s.add(id);
+  refresh();
+}
+function selectAll(p) { VIEW[p].ids.forEach(id => VIEW[p].sel.add(id)); refresh(); }
+async function bulk(p, action, ids = [...(VIEW[p].sel || [])]) {
+  if (!ids.length) return alert('선택한 영상이 없습니다');
+  const what = { top: '맨 앞으로', cancel: '취소', retry: '다시 받기', delete: '목록에서 삭제 (파일은 유지)' }[action];
+  if (!confirm(`${ids.length}개 ${what}?`)) return;
+  const r = await api('/api/jobs/bulk', { method: 'POST', body: JSON.stringify({ ids, action }) });
+  document.querySelector(`[data-platform=${p}] .msg`).textContent = `${r.done}개 ${what.split(' ')[0]} 처리`;
+  if (VIEW[p].sel) VIEW[p].sel.clear();
+  refresh();
+}
+
+// 썸네일 주소가 만료되면(치지직 생방송) 영상 옆에 저장한 썸네일 파일로, 그것도 없으면 숨김
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';  // 투명 1픽셀 (오류 없이 빈 칸)
+const BAD_THUMB = {};  // 영상 id → 'local'(저장된 썸네일) | 'none'(없음). 2초마다 다시 그릴 때 깨진 주소를 또 불러 깜빡이던 것 방지
+const thumbFallback = id => BAD_THUMB[id] === 'none' ? '' : BAD_THUMB[id] === 'local' ? `BAD_THUMB[${id}] = 'none'; this.style.visibility = 'hidden'`
+  : `this.onerror = () => { BAD_THUMB[${id}] = 'none'; this.style.visibility = 'hidden'; }; BAD_THUMB[${id}] = 'local'; this.src = '/api/jobs/${id}/thumb'`;
+// 'none'(썸네일 파일도 없음)이면 아예 요청하지 않음 (예전엔 다시 그릴 때마다 없는 주소를 또 불러 404 가 쌓였음)
+const thumbSrc = (j, url) => BAD_THUMB[j.id] === 'none' ? `${BLANK}" style="visibility:hidden` : BAD_THUMB[j.id] ? `/api/jobs/${j.id}/thumb` : url;
+const ERR_KO = [[/not currently live/i, '방송 중이 아님 (방송이 끝나 녹화할 수 없음)'], [/Requested format is not available/i, '요청한 화질을 받을 수 없음'],
+  [/Private video/i, '비공개 영상'], [/members?-only|Join this channel/i, '멤버십 전용 (로그인 필요)'], [/confirm your age|age-restricted/i, '연령 확인 필요 (로그인 필요)'],
+  [/not a bot|Sign in to confirm/i, '유튜브 봇 감지 (잠시 쉬었다 자동 재시도)'], [/Video unavailable|has been removed|no longer available/i, '볼 수 없는 영상 (삭제·비공개)'],
+  [/HTTP Error 429/i, '요청이 너무 많음 (잠시 후 재시도)'], [/HTTP Error 403/i, '접근 거부 (403)'], [/HTTP Error 404/i, '찾을 수 없음 (404)'],
+  [/timed out/i, '응답 시간 초과 (네트워크)'], [/No space left/i, '디스크 공간 부족'], [/Premieres in|will begin in|is_upcoming/i, '아직 시작 안 한 방송']];
+// 자주 나는 오류는 한국어로 (원문은 마우스를 올리거나 영상 정보에서 확인)
+const koErr = e => { const m = ERR_KO.find(([re]) => re.test(e || '')); return m ? m[1] : (e || '').replace(/^ERROR:\s*(\[[^\]]+\]\s*)?/, ''); };
+// 내용이 그대로면 다시 그리지 않음 (2초마다 목록을 새로 그리면 이미지가 다시 불려 깜빡임)
+function setHTML(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
+const card = (j, p, pos = 0) => {
+  const active = ['downloading', 'recording', 'compressing'].includes(j.status), sel = p && VIEW[p].sel;
+  return `
+  <div class="vid ${sel?.has(j.id) ? 'pick' : ''}" onclick="${sel ? `pickJob('${p}',${j.id})` : `detail(${j.id})`}">
+    ${sel ? '<span class="chk"></span>' : ''}
+    ${j.kind === 'shorts' ? '<span class="tag kind">숏츠</span>' : j.live || j.kind === 'streams' ? '<span class="tag kind red">라이브</span>' : ''}
+    <img loading="lazy" src="${thumbSrc(j, esc(j.thumb || thumb(j.video_id)))}" alt="" referrerpolicy="no-referrer" onerror="${thumbFallback(j.id)}">
+    ${j.status === 'done' ? '' : `<div class="bar"><i style="width:${(j.progress || 0).toFixed(1)}%"></i></div>`}
+    <div class="body">
+      <div class="t" translate="no">${esc(j.title || j.url)}</div>
+      <div class="mute">${j.cut ? '<span class="tag red" title="방송 중에 녹화가 끊김 · 영상 정보에서 끊긴 지점 확인">⚠ 끊김</span>' : ''}${j.streaming ? (j.status === 'recording' ? '녹화하면서 압축 중' : '받으면서 압축 중') : LABEL[j.status] || j.status}${pos ? ` · ${pos}번째` : ''}${active && j.status === 'compressing' && j.progress ? ` ${j.progress.toFixed(0)}%` : ''}</div>
+      ${active && j.status !== 'compressing' && prog(j) ? `<div class="mute">${prog(j)}</div>` : ''}
+      ${j.error && !j.err_seen ? `<div class="err" title="${esc(j.error)}">${esc(koErr(j.error).slice(0, 120))}</div>` : ''}
+    </div>
+  </div>`;
+};
+
+async function loadJobs(el, q = '', p = null) {  // p 가 있으면 플랫폼 메인 목록 (필터·검색·선택 적용)
+  if (p) q += `&status=${VIEW[p].status}&search=${encodeURIComponent(VIEW[p].search)}&sort=${VIEW[p].sort}&page=${VIEW[p].page}&per=${PER}`;
+  const { jobs, counts, total, wait, paused_until, pause_reason } = await api('/api/jobs' + q);
+  if (LAST_ST) pauseBar({ ...LAST_ST, paused_until, pause_reason });  // 봇 감지 경고를 2초 안에 반영 (상태 요청은 15초마다라 느림)
+  if (p && !jobs.length && VIEW[p].page > 1) { VIEW[p].page = Math.max(1, Math.ceil(total / PER)); return refresh(); }  // 지워서 페이지가 줄면
+  document.getElementById('wait').textContent = wait && tab === 'youtube' ? `다음 다운로드까지 ${wait}초 (차단 예방 대기)` : '';
+  if (p) {
+    VIEW[p].ids = jobs.map(j => j.id);
+    renderFilters(p, counts);
+    renderPager(p, total);
+    if (VIEW[p].sel) document.getElementById(`${p}-selcount`).textContent = `${VIEW[p].sel.size}개 선택`;
+  }
+  // 대기 필터는 받을 순서대로 → "N번째"
+  const pos = i => p && VIEW[p].status === 'queued' ? (VIEW[p].page - 1) * PER + i + 1 : 0;
+  setHTML(el, jobs.map((j, i) => card(j, p, pos(i))).join('') || '<div class="mute">없음</div>');
+}
+
+const schedText = s => !s.enabled ? '일시정지됨' :
+  `마지막 확인 ${s.last_checked ? rel(s.last_checked) : '없음'}${s.last_checked ? ` (새 영상 ${s.last_found ?? 0}개)` : ''} · 다음 확인 ${s.next_check * 1000 <= Date.now() ? '1분 내' : `${clock(s.next_check)} (${rel(s.next_check)})`}`;
+
+async function loadSubs(p) {
+  const subs = await api('/api/subs?platform=' + p);
+  subs.forEach(s => SUBS[s.id] = s);
+  document.getElementById(`${p}-subcount`).textContent = subs.length ? `(${subs.length})` : '';
+  setHTML(document.getElementById(`${p}-subs`), subs.map(s => `
+    <div class="sub ${s.id === SEL[p]?.id ? 'on' : ''} ${s.enabled ? '' : 'off'}" onclick="pick(SUBS[${s.id}])">
+      <img src="${esc(s.avatar || '')}" alt="" referrerpolicy="no-referrer">
+      <div class="info">
+        <b translate="no">${esc(s.name)}</b>
+        <div>${kindTags(s)}${tags(s)}</div>
+        <span class="mute">${s.done} / ${s.total}개 완료 · ${ivName(s.interval_min || SET.check_interval_min)}</span>
+        <span class="mute">${schedText(s)}</span>
+        ${s.last_error ? `<span class="err">확인 오류: ${esc(koErr(s.last_error).slice(0, 80))}</span>` : ''}
+      </div>
+    </div>`).join('') || '<div class="mute">구독한 채널이 없습니다</div>');
+  const cur = SEL[p] && subs.find(x => x.id === SEL[p].id);
+  if (cur) pick(cur, false);
+  else if (SEL[p]) { SEL[p] = null; document.getElementById(`${p}-subwrap`).hidden = true; }
+}
+
+function pick(s, clicked = true) {
+  const p = platOf(s.url);
+  SEL[p] = s;
+  document.getElementById(`${p}-subwrap`).hidden = false;
+  document.getElementById(`${p}-subname`).textContent = s.name;
+  document.getElementById(`${p}-subsched`).textContent = schedText(s);
+  document.getElementById(`${p}-subacts`).innerHTML = `
+    <button class="sm" onclick="act('/api/subs/${s.id}/check','POST')">지금 확인</button>
+    <button class="sm" onclick="confirm('이 채널의 기존 영상을 전부(오래된 것부터) 받을까요? 이미 받은 영상은 건너뜀') && act('/api/subs/${s.id}/backfill','POST')">기존 영상 전부 받기</button>
+    <button class="sm" onclick="act('/api/subs/${s.id}/toggle','POST')">${s.enabled ? '일시정지' : '재개'}</button>
+    <button class="sm" onclick="confirm('구독 삭제? (받은 파일은 유지)') && act('/api/subs/${s.id}','DELETE')">삭제</button>`;
+  if (!clicked) return;  // 자동 새로고침 때는 입력 중인 설정 폼을 건드리지 않음
+  const f = document.getElementById(`${p}-subform`), kinds = (s.kinds || 'videos').split(',');
+  for (const k of ['quality', 'max_height', 'folder', 'interval_min']) f[k].value = s[k] || '';
+  f.querySelectorAll('[name=kind]').forEach(x => x.checked = kinds.includes(x.value));
+  f.sync(); preview(f);
+  document.querySelectorAll(`#${p}-subs .sub`).forEach(x => x.classList.remove('on'));
+  loadJobs(document.getElementById(`${p}-subvids`), '?sub=' + s.id);
+}
+
+async function saveSub(e) {
+  e.preventDefault();
+  const p = e.target.dataset.p;
+  try {
+    await api('/api/subs/' + SEL[p].id, { method: 'PUT', body: JSON.stringify(optsOf(e.target)) });
+    await loadSubs(p); alert('저장됨');
+  } catch (err) { alert('실패: ' + err.message); }
+}
+
+async function loadStatus() {
+  const [st, subs, au] = await Promise.all([api('/api/status'), api('/api/subs'), api('/api/audit')]);
+  renderAudit(au);
+  renderUpdates(st);
+  SUBS = Object.fromEntries(subs.map(s => [s.id, s]));
+  const dead = Object.entries(st.threads).filter(([, ok]) => !ok).map(([n]) => n);
+  const c = st.counts, speed = st.active.reduce((n, a) => n + (a.speed || 0), 0);
+  const kpi = (cls, title, big, sub) => `<div class="kpi ${cls}"><span class="mute">${title}</span><b>${big}</b><span class="mute" title="${esc(sub)}">${esc(sub)}</span></div>`;
+  document.getElementById('stats').innerHTML = [
+    kpi('', '진행 중', st.active.length, st.active.length ? `합계 ${(speed / 1048576).toFixed(1)} MB/s` : '없음'),
+    kpi('', '대기', c.queued || 0, '다운로드 기다리는 중'),
+    kpi('', '완료', c.done || 0, '전체'),
+    kpi(st.errors_new ? 'warn' : '', '오류', st.errors_new, st.errors_new ? '아래 최근 오류 확인' : c.error ? `확인함 · 오류 목록에 ${c.error}개` : '없음'),  // 확인(숨기기)한 오류는 세지 않음
+    kpi(st.today >= st.daily_limit ? 'warn' : '', '유튜브 24시간', `${st.today} / ${st.daily_limit}`, st.today >= st.daily_limit ? '한도 도달 · 유튜브만 대기' : '하루 최대 개수'),
+  ].join('');
+  // 시스템: 이름 | 값 두 칸 표
+  const dot = cls => `<span class="dot ${cls}"></span>`, ver = s => (String(s || '').match(/\d+(\.\d+)+/) || ['없음'])[0];
+  const why = Object.entries(st.hw_why || {}), L = st.load;
+  const meter = pct => `<div class="meter"><i style="width:${Math.min(pct, 100).toFixed(0)}%; ${pct > 85 ? 'background:#ff6b6b' : pct > 60 ? 'background:var(--warn)' : ''}"></i></div>`;
+  document.getElementById('sysok').innerHTML = dead.length ? `<span class="err">멈춤: ${esc(dead.join(', '))}</span>`
+    : `<span class="mute">정상 · 가동 ${rel(st.started).replace(' 전', '')}</span>`;
+  document.getElementById('sys').innerHTML = [
+    ['CPU', `${L.cpu.toFixed(0)}% <span class="mute">· ${L.cores}코어</span>${meter(L.cpu)}`],
+    ['메모리', `${size(L.mem)} <span class="mute">/ ${size(L.mem_total)}</span>${meter(L.mem / L.mem_total * 100)}`],
+    ...(L.gpus.length ? L.gpus.map(g => ['GPU', `${g.util.toFixed(0)}% <span class="mute">· 인코더 ${g.enc.toFixed(0)}% · 메모리 ${size(g.mem)} / ${size(g.mem_total)} · ${esc(g.name)}</span>${meter(g.util)}`])
+      : [['GPU', '<span class="mute">엔비디아 GPU 연결 안 됨 (측정 불가)</span>']]),
+    ['유튜브 차단', st.paused_until ? `${dot('bad')}일시정지 (${clock(st.paused_until)}까지)` : `${dot('')}이상 없음`],
+    ...st.disks.map(d => {
+      const used = 1 - d.free / d.total;
+      return ['디스크', `${size(d.free)} 남음 <span class="mute">/ ${size(d.total)} · ${esc(d.path.replace(/^\/host/, ''))}</span>${d.low ? ' <span class="err">공간 부족 · 새 다운로드 멈춤</span>' : ''}${meter(d.low ? 100 : used * 100)}`];
+    }),
+    ['하드웨어 가속', `${PLATFORMS.map(p => `${PLAT[p].name} <b>${esc(st.hw_use[p])}</b>`).join(' · ')}${why.length ? det('hw', '하드웨어 가속 안 되는 이유', `<div class="mute">${why.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div>`) : ''}`],
+    ['로그인', `YouTube ${st.cookies.youtube ? dot('') + '됨' : dot('warn') + '안 됨'} · 치지직 ${st.cookies.chzzk ? dot('') + '됨' : dot('warn') + '안 됨'}`],
+    ['동시 개수', `유튜브 ${st.concurrency} · 치지직 ${st.chzzk_concurrency} <span class="mute">(생방송 ${st.live_concurrency} · ${st.chzzk_live_concurrency})</span>`],
+    ['버전', `yt-dlp ${esc(ver(st.versions['yt-dlp']))} · ffmpeg ${esc(ver(st.versions.ffmpeg))} · deno ${esc(ver(st.versions.deno))}`],
+  ].map(([k, v]) => `<span>${k}</span><div>${v}</div>`).join('');
+  // 플랫폼별 채널 목록: 다음 확인이 가까운 순 (일시정지는 맨 아래)
+  for (const p of PLATFORMS) setHTML(document.getElementById(`sched-${p}`), [...subs].filter(s => platOf(s.url) === p)
+    .sort((a, b) => (b.enabled - a.enabled) || a.next_check - b.next_check).map(s => `
+    <div class="srow ${s.enabled ? '' : 'off'}">
+      <div class="row"><b translate="no">${esc(s.name)}</b><span>${kindTags(s)}<button class="sm" onclick="act('/api/subs/${s.id}/check','POST')">지금 확인</button></span></div>
+      <div class="mute">${!s.enabled ? '일시정지됨' : `다음 ${s.next_check * 1000 <= Date.now() ? '1분 내' : `${clock(s.next_check)} (${rel(s.next_check)})`}`}
+        · ${ivName(s.interval_min || SET.check_interval_min)}${s.last_checked ? ` · 마지막 ${clock(s.last_checked)} 새 영상 ${s.last_found ?? 0}개` : ''}
+        ${p === 'chzzk' && s.enabled && (s.kinds || '').includes('streams') ? ' · <b style="color:var(--fg)">생방송 10초마다 감시 중</b>' : ''}</div>
+      ${s.last_error ? `<div class="err">${esc(koErr(s.last_error).slice(0, 100))}</div>` : ''}
+    </div>`).join('') || '<div class="mute">구독한 채널 없음</div>');
+  setHTML(document.getElementById('log'), st.log.map(l => `<div><time>${clock(l.t)}</time>${esc(l.msg)}</div>`).join('') || '<div class="mute">없음</div>');
+  setHTML(document.getElementById('errors'), st.errors.map(e => `<div class="arow"><a onclick="detail(${e.id})" translate="no">${esc(e.title || '')}</a><span class="err" title="${esc(e.error)}">${esc(koErr(e.error).slice(0, 80))}</span>
+    <button class="sm" onclick="hideErrors([${e.id}])" title="목록에서 숨기기 (영상 정보에는 남음)">숨기기</button></div>`).join('') || '<div class="mute">없음</div>');
+  document.getElementById('errhide').hidden = !st.errors.length;
+  pauseBar(st);
+}
+
+// 접어 둔 목록: 2초마다 다시 그려도 펼친 상태 유지
+const OPEN = new Set();
+const det = (k, summary, body) => `<details ${OPEN.has(k) ? 'open' : ''} ontoggle="this.open ? OPEN.add('${k}') : OPEN.delete('${k}')"><summary>${summary}</summary>${body}</details>`;
+
+function renderAudit(au) {
+  const last = au.history[0], r = last?.result;
+  document.getElementById('auditbtn').disabled = au.running;
+  document.getElementById('auditbtn').textContent = au.running ? '점검 중...' : '지금 점검';
+  const head = `<div class="mute">${au.running ? '<b style="color:var(--fg)">점검 중</b> · ' : ''}${last ? `마지막 ${clock(last.started)}` : '점검 기록 없음'} · ${au.next ? `다음 ${clock(au.next)}` : '자동 점검 꺼짐'}</div>`;
+  if (!r) return setHTML(document.getElementById('audit'), head);
+  const n = (t, v, bad) => `<div><span class="mute">${t}</span><b style="${bad ? 'color:var(--warn)' : ''}">${v}</b></div>`;
+  setHTML(document.getElementById('audit'), head + `
+    <div class="nums">${n('놓친 영상', r.missing_added, r.missing_added)}${n('파일 정상', `${r.files_checked - r.file_issues.length}/${r.files_checked}`, r.file_issues.length)}${n('재시도', r.retried)}${n('포기', r.gave_up.length, r.gave_up.length)}</div>
+    ${r.aborted ? `<div class="err" style="margin-top:8px">${esc(r.aborted)}</div>` : ''}
+    ${auditTabs(r)}`);
+}
+// 점검 목록: 펼침 대신 탭 + 고정 높이 (길어도 판이 늘어나지 않고 그 안에서 스크롤)
+let ATAB = 'files';
+function auditTabs(r) {
+  const tabs = [['files', '파일 문제', r.file_issues, i => `<div class="arow"><a onclick="detail(${i.id})" translate="no">${esc(i.title)}</a><span class="err">${esc(i.issue)}</span>
+      <button class="sm" onclick="confirm('기존 파일을 지우고 다시 받을까요?') && act('/api/jobs/${i.id}/redownload','POST')">다시 받기</button></div>`],
+    ['gaveup', '다운로드 포기', r.gave_up, g => `<div class="arow"><a onclick="detail(${g.id})" translate="no">${esc(g.title || '')}</a><span class="err" title="${esc(g.error)}">${esc(koErr(g.error))}</span><span></span></div>`],
+    ['subs', '유튜버별 비교', r.subs, x => `<div class="arow"><span translate="no">${esc(x.name)}</span><span class="mute">최신 ${x.listed}개 비교${x.missing ? ` · <b>놓친 ${x.missing}개 → 대기열</b>` : ''}</span><span class="err">${x.error ? esc(koErr(x.error).slice(0, 60)) : ''}</span></div>`]
+  ].filter(t => t[2].length);
+  if (!tabs.length) return '<div class="mute" style="margin-top:12px">문제 없음</div>';
+  if (!tabs.some(t => t[0] === ATAB)) ATAB = tabs[0][0];
+  const [, , list, row] = tabs.find(t => t[0] === ATAB);
+  return `<div class="filters" style="margin-top:12px">${tabs.map(([k, t, l]) => `<button class="${k === ATAB ? 'on' : ''}" onclick="ATAB='${k}'; loadStatus()">${t} ${l.length}</button>`).join('')}</div>
+    <div class="alist">${list.map(row).join('')}</div>`;
+}
+
+function renderUpdates(st) {
+  const u = st.updates, out = u?.items.filter(i => i.outdated) || [];
+  document.getElementById('appver').textContent = 'v' + st.app_version;
+  document.getElementById('upddot').hidden = !out.length;
+  if (tab !== 'status') return;
+  document.getElementById('updinfo').innerHTML = !u ? '업데이트 확인 중...' : out.length
+    ? `<b style="color:var(--fg)">업데이트 있음:</b> ${out.map(i => `${esc(i.name)} ${esc(i.latest.replace(/^v/, ''))}`).join(', ')}`
+    : `프로그램 최신 · ${clock(u.checked)} 확인`;
+  document.getElementById('updates').innerHTML = out.some(i => i.how === 'restart')
+    ? `<button class="sm primary" onclick="applyUpdates()">재시작해서 업데이트</button>`
+    : `<button class="sm" onclick="checkUpdates(this)">지금 확인</button>`;
+}
+
+async function checkUpdates(b) {
+  b.disabled = true; b.textContent = '확인 중...';
+  await api('/api/updates/check', { method: 'POST' }).catch(() => {});
+  b.disabled = false; b.textContent = '지금 확인'; refresh();
+}
+
+async function applyUpdates() {
+  if (!confirm('컨테이너를 재시작해서 yt-dlp/deno 를 최신으로 설치할까요?\n진행 중인 다운로드는 재시작 후 이어받습니다.')) return;
+  await api('/api/updates/apply', { method: 'POST' }).catch(() => {});
+  document.getElementById('wait').textContent = '재시작 중... 잠시 후 자동으로 다시 연결됩니다';
+}
+
+function pauseBar(st) {
+  const b = document.getElementById('pausebar'), low = st.disks.filter(d => d.low);
+  b.hidden = !st.paused_until && !low.length;
+  b.innerHTML = (low.length ? `<b>디스크 공간 부족 → 그 디스크에 저장하는 새 다운로드·녹화를 멈췄습니다.</b>
+    <div class="mute">${low.map(d => `${esc(d.path.replace(/^\/host/, '') || '/')} 남은 ${size(d.free)}`).join(' · ')} — 파일을 정리하거나 설정 → 공통 → 최소 여유 공간을 낮추면 자동으로 다시 받습니다.</div>` : '')
+    + (st.paused_until ? `<b>유튜브 차단 신호 감지 → ${clock(st.paused_until)}까지 다운로드/확인을 쉽니다.</b>
+    <div class="err">${esc(st.pause_reason.slice(0, 200))}</div>
+    <div class="mute">YouTube 탭에서 🔑 로그인하거나 동시 다운로드 수를 줄이면 도움이 됩니다.</div>
+    <button class="sm danger" onclick="confirm(BOT_RISK) && act('/api/resume','POST')">불이익 확인 후 지금 재개</button>` : '');
+}
+// 봇 감지 중에 억지로 받을 때의 불이익 (재개·다운로드 전에 확인받음)
+const BOT_RISK = `⚠ 유튜브가 지금 이 서버를 봇으로 의심하고 있습니다.\n\n그래도 받으면:\n`
+  + `· 대부분 다시 실패하고, 차단 시간이 더 길어지거나 IP 가 몇 시간~며칠 막힐 수 있음\n`
+  + `· 로그인한 계정이 "봇 확인"을 요구받거나 일시 제한될 수 있음\n`
+  + `· 쉬는 시간이 풀리고 대기 중인 유튜브 영상도 다시 받기 시작함\n\n그래도 지금 재개하고 받을까요?`;
+
+// 끊긴 생방송 녹화: 파일마다 시작 → 끊긴 지점(녹화 몇 분째·시각) → 다음 파일까지 빠진 시간
+const tclock = t => new Date(t * 1000).toLocaleTimeString(LOC, { hour12: false });
+function cutLog(j) {
+  const ps = (j.parts || []).filter(p => p.started).map(p => p.cut && p.cut < p.started ? { ...p, cut: null } : p);  // 앞뒤가 맞지 않는 옛 기록은 무시
+  if (!ps.some(p => p.cut)) return '';
+  const canMerge = ps.length > 1 && ps.every(p => p.status === 'done');
+  return `<div class="cutlog"><b class="err">⚠ 녹화 끊김 기록</b> <span class="mute">방송 중에 녹화가 끊겨 파일 ${ps.length}개로 나뉨 · 누르면 그 파일 정보</span>
+    ${canMerge ? `<button class="sm" style="margin-left:8px" onclick="mergeParts(this, ${ps[0].id})">조각 ${ps.length}개 한 파일로 합치기</button>` : ''}
+    <ol>${ps.map((p, i) => `<li class="${p.id === j.id ? 'me' : ''}" onclick="detail(${p.id})">${i + 1}번째 파일 · ${tclock(p.started)} 시작
+      ${p.cut ? `→ <b>녹화 ${left(p.cut - p.started)} 지점</b> (${tclock(p.cut)})에서 끊김` : p.status === 'downloading' ? '→ 녹화 중' : '→ 끝까지 녹화'}
+      ${p.cut && ps[i + 1] ? `<div class="err">↳ 다음 파일 시작까지 약 ${left(Math.max(ps[i + 1].started - p.cut, 0))} 빠짐</div>` : ''}</li>`).join('')}</ol></div>`;
+}
+
+async function detail(id) {
+  const j = await api('/api/jobs/' + id), m = j.meta || {}, dlg = document.getElementById('dlg');
+  if (j.error && !j.err_seen && ['error', 'done'].includes(j.status)) api('/api/errors/seen', { method: 'POST', body: JSON.stringify({ ids: [j.id] }) }).then(() => refresh()).catch(() => {});  // 열어 본 오류 = 확인함
+  const c = m.compressed;
+  const poster = esc(j.thumb || thumb(j.video_id, 'hqdefault'));
+  // 받은 영상은 바로 재생 (자막 있으면 함께). H.265 는 브라우저에 따라 못 틀 수 있어 안내
+  const media = j.status === 'done' && j.filepath && !j.file_ok
+    ? `<img src="${poster}" alt="" referrerpolicy="no-referrer" onerror="${thumbFallback(j.id)}">
+       <div class="err" style="padding:8px 16px">파일이 없습니다 (삭제·이동됨) → 아래 '다시 받기'로 다시 받을 수 있음</div>`
+    : j.status === 'done' && j.filepath
+    ? `<video controls preload="metadata" poster="${poster}" src="/api/jobs/${j.id}/file" onerror="document.getElementById('playerr').hidden = false">
+        ${(m.subtitles || []).map(l => `<track kind="subtitles" srclang="${esc(l)}" label="${esc(l)}" src="/api/jobs/${j.id}/sub/${encodeURIComponent(l)}.vtt">`).join('')}</video>
+       <div id="playerr" class="err" style="padding:8px 16px" hidden>이 브라우저에서 재생할 수 없는 형식입니다 (H.265 는 사파리·엣지·하드웨어 지원 크롬에서 재생) → 아래 '파일 받기'로 저장해서 재생</div>`
+    : ['downloading', 'recording', 'compressing'].includes(j.status)  // 받는 중·녹화 중: 확인용으로 지금까지 받은 부분의 최근 10초 (진행 상태가 덮어써서 recording 등으로 옴)
+    ? `<div id="pv" style="position:relative"><img src="${poster}" alt="" referrerpolicy="no-referrer" onerror="${thumbFallback(j.id)}">
+        <button class="primary" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%)" onclick="livePreview(${j.id})">▶ 지금 받는 부분 확인 (최근 10초)</button></div>`
+    : `<img src="${poster}" alt="" referrerpolicy="no-referrer" onerror="${thumbFallback(j.id)}">`;
+  dlg.innerHTML = `<div class="dscroll">
+    ${media}
+    <div class="body">
+      <h2 style="margin:0" translate="no">${esc(j.title || j.url)}</h2>
+      ${cutLog(j)}
+      <dl>
+        <dt>상태</dt><dd>${LABEL[j.status] || j.status}${['downloading', 'recording'].includes(j.status) && prog(j) ? ` — ${prog(j)}` : j.progress && j.status !== 'done' ? ` (${j.progress.toFixed(0)}%)` : ''}</dd>
+        <dt>종류</dt><dd>${KINDS[j.kind] || '동영상'}${j.live ? ' (실시간 녹화)' : ''}</dd>
+        <dt>채널</dt><dd translate="no">${esc(m.channel || m.uploader || '-')}</dd>
+        <dt>업로드</dt><dd>${date(m.upload_date)}</dd>
+        <dt>길이</dt><dd>${dur(m.duration)}</dd>
+        <dt>조회수</dt><dd>${m.view_count?.toLocaleString() ?? '-'}${m.like_count ? ` · 좋아요 ${m.like_count.toLocaleString()}` : ''}</dd>
+        <dt>원본</dt><dd>${esc(m.resolution || '-')}${m.fps ? ` ${m.fps}fps` : ''} · ${esc(m.vcodec || '-')} / ${esc(m.acodec || '-')} · ${m.orig_est ? '약 ' : ''}${size(m.orig_size)}${m.orig_est ? ' <span class="mute">(받으면서 압축해 원본은 저장 안 함 · 방송 비트레이트로 추정)</span>' : ''}</dd>
+        <dt>저장</dt><dd>${m.quality ? `<span class="tag">${esc(qName(m.quality))}</span>` : ''}${c ? `${c.codec.toUpperCase()} CRF ${esc(c.crf)} (${esc(c.preset)}${c.encoder ? ' · ' + esc(c.encoder) : ''}) · ${size(m.size)} <span class="mute">(${Math.round((1 - m.size / m.orig_size) * 100)}% 절약)</span>` : (m.size ? `원본 그대로 · ${size(m.size)}` : '-')}</dd>
+        <dt>자막</dt><dd>${m.subtitles?.length ? m.subtitles.map(l => `<span class="tag">${esc(l)}</span>`).join('') : '-'}</dd>
+        <dt>경로</dt><dd class="mute" translate="no">${esc((j.filepath || '-').replace(/^\/host\//, '/'))}</dd>
+        <dt>링크</dt><dd><a href="${esc(j.url)}" target="_blank" rel="noopener" style="color:var(--acc)">${esc(j.url)}</a></dd>
+      </dl>
+      ${j.error && !j.cut ? `<div class="err">${esc(koErr(j.error))}${koErr(j.error) !== j.error ? `<div class="mute">원문: ${esc(j.error)}</div>` : ''}</div>` : ''}
+      ${m.description ? `<pre translate="no">${esc(m.description)}</pre>` : ''}
+    </div></div>
+      <!-- 창 아래 고정 줄: [멈추기(빨강/주황)] [다른 동작] ··· [닫기] — 내용만 스크롤되고 버튼 줄은 그대로 -->
+      <div class="actions">
+        ${j.status === 'recording' ? `<button class="warn" onclick="confirm('녹화를 멈추고 지금까지 녹화한 부분을 저장할까요?') && (act('/api/jobs/${j.id}/cancel','POST'), dlg.close())">■ 녹화 중지 (저장)</button>`
+          : ['queued', 'downloading', 'compressing'].includes(j.status) ? `<button class="danger" onclick="confirm('${j.status === 'queued' ? '대기열에서 뺄까요?' : '받기를 멈추고 받던 파일을 지울까요?'}') && (act('/api/jobs/${j.id}/cancel','POST'), dlg.close())">✕ ${j.status === 'queued' ? '대기 취소' : '다운로드 취소'}</button>` : ''}
+        ${j.status === 'done' && j.file_ok ? `<a href="/api/jobs/${j.id}/file?download=1"><button>파일 받기</button></a>` : ''}
+        ${j.status === 'queued' ? `<button onclick="act('/api/jobs/${j.id}/top','POST'); dlg.close()">맨 앞으로</button>` : ''}
+        ${['error', 'done', 'cancelled'].includes(j.status) && !(j.live && j.file_ok) ? `<button onclick="(${j.status !== 'done'} || confirm('기존 파일을 지우고 다시 받을까요?')) && (act('/api/jobs/${j.id}/retry','POST'), dlg.close())">다시 받기</button>` : ''}
+        ${['error', 'done', 'cancelled', 'queued'].includes(j.status) ? `<button onclick="confirm('목록에서 삭제? (파일은 유지)') && (act('/api/jobs/${j.id}','DELETE'), dlg.close())">목록에서 삭제</button>` : ''}
+        <span style="flex:1"></span>
+        <button class="primary" onclick="dlg.close()">닫기</button>
+      </div>`;
+  dlg.showModal();
+}
+
+async function livePreview(id) {  // 받는 중인 영상 미리보기 (preview 는 저장 경로 미리보기라 이름 다름)
+  const pv = document.getElementById('pv');
+  pv.querySelector('button').textContent = '미리보기 만드는 중…';
+  const r = await fetch(`/api/jobs/${id}/preview`);
+  if (!r.ok) { pv.querySelector('button').textContent = (await r.json()).detail + ' — 다시 시도'; return; }
+  pv.innerHTML = `<video controls autoplay src="${URL.createObjectURL(await r.blob())}"></video>
+    <button class="sm" style="position:absolute; right:8px; top:8px" onclick="livePreview(${id})">↻ 최신으로</button>`;
+}
+async function mergeParts(b, id) {
+  if (!confirm('나뉜 녹화 파일을 1번째 파일 하나로 합칠까요?\n(화질 그대로 이어 붙임 · 빠진 구간은 그대로 빠짐 · 성공하면 나머지 조각 파일은 삭제)')) return;
+  b.disabled = true; b.textContent = '합치는 중… (큰 파일은 몇 분)';
+  let r = await fetch(`/api/jobs/${id}/merge`, { method: 'POST' });
+  // 조각마다 형식이 다르면(처음 조각은 원본, 이어진 조각은 압축본 등) 다시 압축해서 합칠지 물어봄
+  if (r.status === 409 && (await r.clone().json()).detail.includes('형식') &&
+      confirm('조각마다 영상 형식이 달라 그대로는 이어 붙일 수 없습니다.\n전부 지금 화질 설정으로 다시 압축해서 합칠까요?\n(방송 길이만큼 오래 걸리고 CPU 를 씀 · 끝나면 로그에 표시)'))
+    r = await fetch(`/api/jobs/${id}/merge?reencode=1`, { method: 'POST' });
+  const d = await r.json();
+  if (!r.ok) { alert(d.detail); b.disabled = false; b.textContent = '다시 시도'; return; }
+  if (d.started) { b.textContent = '다시 압축해서 합치는 중… (끝나면 로그에 표시)'; return; }
+  alert(`${d.merged}개를 한 파일로 합쳤습니다`); detail(id); refresh();
+}
+async function hideErrors(ids) {  // 오류 확인 → 카드·상태 화면에서 숨김 (영상 정보에는 남음, 다시 받다 새로 나면 다시 보임)
+  await api('/api/errors/seen', { method: 'POST', body: JSON.stringify({ ids: ids || null }) }).catch(e => alert(e.message));
+  refresh();
+}
+async function act(u, method) {  // 실패하면 이유를 알림 (예전엔 아무 표시 없이 무시됨)
+  try { await api(u, { method }); } catch (e) { alert(e.message); }
+  refresh();
+}
+
+async function refresh() {
+  if (PLATFORMS.includes(tab)) {
+    const s = SEL[tab];
+    return Promise.all([loadJobs(document.getElementById(`${tab}-all`), '?platform=' + tab, tab), loadSubs(tab),
+                        s && loadJobs(document.getElementById(`${tab}-subvids`), '?sub=' + s.id)]);
+  }
+  if (tab === 'status') return loadStatus();
+}
+
+async function loadSettings() {
+  SET = await api('/api/settings');
+  const f = document.getElementById('settings');
+  for (const [k, v] of Object.entries(SET)) if (f[k]) f[k].value = v;
+  // 예전 버전처럼 탭 값이 비어 있으면(=공통 따름) 공통 값을 보여 줌 → 저장하면 탭 값으로 확정
+  for (const p of PLATFORMS) for (const k of ['quality', 'max_height', 'folder']) if (!SET[`${p}_${k}`]) f[`${p}_${k}`].value = SET[k];
+  document.querySelectorAll('[data-popts]').forEach(box => {  // 지금 고른 화질의 코덱 토글을 열어 둠
+    const g = box.querySelector('input:checked')?.closest('.qgroup').dataset.qgroup || 'h265';
+    qTab(box.querySelector(`.qtabs [data-g=${g}]`));
+  });
+  document.querySelectorAll('form').forEach(x => x.folder && preview(x));
+}
+
+async function save(e) {
+  e.preventDefault();
+  try {
+    await api('/api/settings', { method: 'PUT', body: JSON.stringify(Object.fromEntries(new FormData(e.target))) });
+    alert('저장됨 (다음 작업부터 적용)'); loadSettings();
+  } catch (err) { alert('실패: ' + err.message); }
+}
+
+document.querySelectorAll('select[data-n]').forEach(sel =>  // 1~N개 선택지
+  sel.innerHTML = Array.from({ length: +sel.dataset.n }, (_, i) => `<option value="${i + 1}">${i + 1}개</option>`).join(''));
+loadSettings().then(loadLogin); refresh();  // 로그인 배지는 설정(갱신 주기)을 읽은 뒤에 그려야 "다시 로그인 권장"이 처음부터 보임
+setInterval(() => refresh().catch(() => document.getElementById('wait').textContent = '서버 연결 끊김 - 재연결 시도 중...'), 2000);
+// AV1 은 하드웨어 AV1 인코더(인텔 퀵싱크 Arc 이상 / 엔비디아 RTX 40 이상)가 감지될 때만 선택지에 보임
+// (이미 AV1 로 골라 둔 곳은 사라지지 않게 그대로 둠)
+function showAv1(st) {
+  const ok = Object.values(st.hw || {}).some(c => c.includes('av1'));
+  document.querySelectorAll('option[value=av1]').forEach(o => o.hidden = o.disabled = !ok && o.parentElement.value !== 'av1');  // 사파리는 hidden 무시 → disabled 도
+  document.querySelectorAll('[data-popts]').forEach(box =>
+    box.querySelector('.qtabs [data-g=av1]').hidden = !ok && !box.querySelector('[data-qgroup=av1] input:checked'));
+}
+let LAST_ST = null;  // 마지막 상태 (디스크 경고 등 — 목록 새로고침 때 봇 경고와 함께 다시 그림)
+const bg = () => api('/api/status').then(st => (LAST_ST = st, pauseBar(st), renderUpdates(st), showAv1(st))).catch(() => {});
+bg();
+setInterval(() => tab !== 'status' && bg(), 15000);  // 차단 알림은 어느 탭에서든 표시
+</script>
+</body>
+</html>

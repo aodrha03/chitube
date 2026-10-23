@@ -1,0 +1,39 @@
+# 치튜브 설치 — 윈도우
+
+> 자세한 사용법은 [사용 설명서](../MANUAL.md).
+
+## 1. 준비 (처음 한 번)
+
+1. **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** 설치 → 설치 중 **WSL 2 사용** 그대로 두기 → 컴퓨터 다시 시작
+2. Docker Desktop 을 실행해 두기 (작업 표시줄에 고래 아이콘)
+
+## 2. 실행
+
+1. 이 압축 파일(`chitube-…-windows.zip`)을 원하는 곳에 풉니다. 예: `C:\chitube`
+2. 폴더 안의 **`시작.bat`** 을 더블클릭
+   - 처음엔 이미지를 만드느라 몇 분 걸립니다. 끝나면 브라우저에서 **`http://localhost:8945`** 이 열립니다.
+3. 끄려면 **`중지.bat`** (설정 · 받은 영상은 그대로)
+
+> 컴퓨터를 켤 때마다 자동으로 켜지게 하려면: Docker Desktop → Settings → General → **Start Docker Desktop when you sign in** 체크. 치튜브는 Docker 가 켜지면 같이 켜집니다.
+
+## 저장 위치 바꾸기 (선택)
+
+기본은 이 폴더의 `downloads\` 입니다. 다른 드라이브에 저장하려면:
+
+1. `.env.example` 을 복사해 이름을 `.env` 로 바꾸기
+2. 메모장으로 열어 `DOWNLOAD_DIR=D:\Videos\ChiTube` 처럼 바꾸고 저장
+3. `시작.bat` 다시 실행
+
+## 알아 둘 것
+
+- 윈도우 Docker Desktop 은 구조상 그래픽카드를 못 써서 **CPU 로 압축**합니다. 느리면 화질을 **원본 그대로**(압축 안 함)로 두세요.
+- 파일을 메모장 등으로 고쳐도 됩니다. (윈도우 줄바꿈이어도 자동으로 고쳐서 실행)
+- 웹 화면에는 비밀번호가 없습니다. 같은 집 네트워크의 다른 기기에서는 `http://이PC의IP:8945` 로 접속할 수 있고, 인터넷에는 열지 마세요.
+
+## 업데이트
+
+새 버전 압축 파일의 내용을 이 폴더에 **덮어쓰기** (`config\` · `downloads\` · `.env` 는 그대로) → `시작.bat`
+
+## 예전 이름(docker_youtube)에서 옮겨 올 때
+
+Docker Desktop → Containers 에서 예전 `docker_youtube` 를 **삭제(휴지통 아이콘)** → 예전 폴더에 새 파일을 덮어쓰고 `시작.bat`. 설정 · 영상은 그대로 이어집니다.

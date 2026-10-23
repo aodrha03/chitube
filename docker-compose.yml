@@ -1,0 +1,32 @@
+# 치튜브 (ChiTube) — 리눅스 / 맥 / 윈도우(WSL) / 시놀로지 Container Manager 공용
+#
+# 파일(이 폴더 전체)만 넣고 실행:
+#   리눅스/맥/윈도우:  docker compose up -d --build
+#   시놀로지:          Container Manager → 프로젝트 → 생성 → 경로를 이 폴더로 지정 (자동 빌드)
+#   포테이너:          Stacks → Add stack → Repository(또는 Upload) → 이 파일 사용
+#
+# 기본값만으로 바로 돌아갑니다. NAS 는 파일 권한 때문에 .env 에서 PUID/PGID 만 맞춰주세요.
+name: chitube
+services:
+  chitube:
+    build: .                         # Dockerfile 이 이 폴더에 있음 (context = 현재 폴더 → 어디서나 빌드 가능)
+    image: chitube:latest
+    container_name: chitube
+    ports:
+      - "${PORT:-8945}:8000"
+    environment:
+      - TZ=${TZ:-Asia/Seoul}
+      - PUID=${PUID:-0}              # 저장 파일 소유자. NAS 는 .env 에서 `id 계정명` 의 uid 로 (기본 0=root 도 동작)
+      - PGID=${PGID:-0}
+    volumes:
+      - ./config:/config                         # 설정·DB (이 폴더 안에 자동 생성)
+      - ${DOWNLOAD_DIR:-./downloads}:/downloads   # 저장 경로를 상대 경로(예: YouTube)로 쓸 때의 기준 폴더
+      - /:/host                                   # 서버 전체 → 웹에서 저장 경로를 /volume1/video/YouTube 처럼 절대 경로로 지정 가능
+    # ── 하드웨어 인코딩: 따로 건드릴 것 없음 (시작할 때 실제로 인코딩해 보고 되는 것만 사용, 없으면 CPU) ──
+    # 인텔 퀵싱크: 서버에 /dev/dri 가 있으면 자동 연결 (그래픽 장치(226번)만 허용, 없는 서버에서도 오류 없음)
+    # 엔비디아: 서버에 NVIDIA Container Toolkit 설치 후 한 번만
+    #   sudo nvidia-ctk runtime configure --runtime=docker --set-as-default && sudo systemctl restart docker
+    # 맥(애플 메탈)·윈도우 Docker Desktop: 컨테이너가 GPU 에 접근할 수 없어 CPU 사용
+    device_cgroup_rules:
+      - "c 226:* rmw"
+    restart: unless-stopped          # 필수: 웹 화면의 "재시작해서 업데이트"가 이걸로 다시 켜짐

@@ -1,0 +1,10 @@
+# 개인 정보: 로그인 쿠키·설정·DB, 받은 영상 (폴더만 남김)
+config/*
+!config/.gitkeep
+downloads/*
+!downloads/.gitkeep
+.env
+# 기타
+.DS_Store
+__pycache__/
+*.pyc

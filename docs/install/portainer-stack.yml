@@ -1,0 +1,19 @@
+# 포테이너 방법 B: 서버에서 `docker build -t chitube:latest .` 로 이미지를 만든 뒤 Stacks → Web editor 에 붙여 넣기
+# volumes 의 왼쪽 경로를 서버 실제 경로로 바꾸세요.
+services:
+  chitube:
+    image: chitube:latest
+    container_name: chitube
+    ports:
+      - "8945:8000"
+    environment:
+      - TZ=Asia/Seoul
+      - PUID=0
+      - PGID=0
+    volumes:
+      - /opt/chitube/config:/config     # 설정 · DB · 로그인 정보
+      - /mnt/hdd/ChiTube:/downloads     # 받은 영상
+      - /:/host                         # 저장 경로를 서버 절대 경로로 쓸 때
+    device_cgroup_rules:
+      - "c 226:* rmw"                   # 인텔 퀵싱크 자동 연결
+    restart: unless-stopped

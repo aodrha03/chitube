@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16090c"/>
+      <stop offset=".55" stop-color="#0f0f12"/>
+      <stop offset="1" stop-color="#071a14"/>
+    </linearGradient>
+    <radialGradient id="red" cx=".15" cy=".2" r=".6"><stop offset="0" stop-color="#ff0033" stop-opacity=".35"/><stop offset="1" stop-color="#ff0033" stop-opacity="0"/></radialGradient>
+    <radialGradient id="green" cx=".9" cy=".85" r=".55"><stop offset="0" stop-color="#00ffa3" stop-opacity=".28"/><stop offset="1" stop-color="#00ffa3" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1280" height="320" rx="24" fill="url(#bg)"/>
+  <rect width="1280" height="320" rx="24" fill="url(#red)"/>
+  <rect width="1280" height="320" rx="24" fill="url(#green)"/>
+  <!-- 치튜브 마크: 어두운 칸 + 빨강→초록 테두리 + 내려받기 화살표 + 녹화 점 (직접 그린 그림, 다른 서비스 로고와 다른 모양) -->
+  <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4d6d"/><stop offset="1" stop-color="#00ffa3"/></linearGradient>
+  <rect x="94" y="98" width="124" height="124" rx="30" fill="#1c1c22" stroke="url(#edge)" stroke-width="5"/>
+  <path d="M156 126 V178 M132 156 L156 180 L180 156 M128 198 H184" stroke="#fff" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="214" cy="214" r="26" fill="#0f0f12"/>
+  <circle cx="214" cy="214" r="18" fill="#00ffa3"/>
+  <text x="270" y="152" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" font-size="64" font-weight="800" fill="#f1f1f1">치튜브 <tspan fill="#9a9aa3" font-size="40" font-weight="700">ChiTube</tspan></text>
+  <text x="272" y="208" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" font-size="30" font-weight="600" fill="#cfcfd4">유튜브 · 치지직 자동 다운로더 — 구독하면 알아서 받고, 생방송은 바로 녹화</text>
+  <g font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" font-size="20" font-weight="700">
+    <rect x="272" y="236" width="118" height="36" rx="18" fill="#ff0033"/><text x="331" y="261" text-anchor="middle" fill="#fff">YouTube</text>
+    <rect x="402" y="236" width="96" height="36" rx="18" fill="#00ffa3"/><text x="450" y="261" text-anchor="middle" fill="#03140d">치지직</text>
+    <rect x="510" y="236" width="104" height="36" rx="18" fill="#2b2b31"/><text x="562" y="261" text-anchor="middle" fill="#e6e6ea">Docker</text>
+    <rect x="626" y="236" width="138" height="36" rx="18" fill="#2b2b31"/><text x="695" y="261" text-anchor="middle" fill="#e6e6ea">H.265 · AV1</text>
+    <rect x="776" y="236" width="170" height="36" rx="18" fill="#2b2b31"/><text x="861" y="261" text-anchor="middle" fill="#e6e6ea">Plex · Jellyfin</text>
+  </g>
+</svg>
