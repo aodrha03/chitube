@@ -421,4 +421,41 @@ main.q("UPDATE jobs SET status='queued', pri=999 WHERE id=?", (ej,))
 assert main.claim(0, 99, 99)["id"] == ej and main.q("SELECT err_seen FROM jobs WHERE id=?", (ej,))[0]["err_seen"] == 0
 main.q("UPDATE jobs SET status='error', error='y' WHERE id=?", (ej,))
 assert ej in new() and main.errors_seen(main.Ids()) ["hidden"] >= 1 and not new()
+# 방송 시작 직후 '방송 중이 아님' → 같은 작업을 다시 (오류·새 파일로 튀지 않음), 6번 넘으면 오류
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live) VALUES('chzzk-live-555','https://chzzk.naver.com/live/" + "c" * 32 + "','시작','{}','downloading',1)")
+sj = main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-555'")[0]
+real = (main.yt_dlp.YoutubeDL.extract_info, main.live_now, main.time.sleep)
+main.yt_dlp.YoutubeDL.extract_info = lambda self, *a, **k: (_ for _ in ()).throw(main.yt_dlp.utils.DownloadError("ERROR: [chzzk:live] ccc: The channel is not currently live"))
+main.live_now, main.time.sleep = (lambda job: True), (lambda sec: None)
+main.run_job(sj, main.job_settings(sj))
+assert main.q("SELECT status, retries, error FROM jobs WHERE id=?", (sj["id"],)) == [{"status": "queued", "retries": 1, "error": None}]
+main.continue_live(main.q("SELECT * FROM jobs WHERE id=?", (sj["id"],))[0])
+assert not main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-555-p2'")  # 새 파일로 튀지 않음
+main.q("UPDATE jobs SET status='downloading', retries=6 WHERE id=?", (sj["id"],))
+main.run_job(main.q("SELECT * FROM jobs WHERE id=?", (sj["id"],))[0], main.job_settings(sj))
+assert main.q("SELECT status FROM jobs WHERE id=?", (sj["id"],))[0]["status"] == "error"
+main.yt_dlp.YoutubeDL.extract_info, main.live_now, main.time.sleep = real
+# 녹화 멈춤 감시: 90초 안 커지면 정상 종료('q'), 그래도 30초 더 멈추면 강제 종료, 다시 커지면 초기화
+calls = []
+real_stop, real_procs, real_kill = main.stop_recording, main.procs, main.os.kill
+main.stop_recording = lambda vid: calls.append(("q", vid))
+main.procs = lambda exe, vid: [(4242, [])]
+main.os.kill = lambda pid, sig: calls.append(("kill", pid, sig))
+st = {}
+main.stall_check(sj["id"], 1000, st); st["t"] -= main.STALL_SEC + 1
+main.stall_check(sj["id"], 1000, st)
+assert calls == [("q", "chzzk-live-555")] and st["acted"] == 1
+main.stall_check(sj["id"], 1000, st); assert len(calls) == 1  # 30초 안 됨
+st["t"] -= 31
+main.stall_check(sj["id"], 1000, st)
+assert calls[-1] == ("kill", 4242, 9) and st["acted"] == 2
+main.stall_check(sj["id"], 2000, st); assert st["acted"] == 0  # 다시 커지면 처음부터
+main.stop_recording, main.procs, main.os.kill = real_stop, real_procs, real_kill
+# 녹화분 보존: 파일이 잠겨 이름을 못 바꿔도 .part 그대로 보존 (잃지 않음)
+kd = tempfile.mkdtemp(); pf = f"{kd}/rec [chzzk-live-556].mp4.part"; open(pf, "wb").write(b"\0" * 2_000_000)
+real_rep, real_sleep = main.os.replace, main.time.sleep
+main.os.replace = lambda a, b: (_ for _ in ()).throw(PermissionError("locked")); main.time.sleep = lambda s: None
+real_out, main.OUT = main.OUT, kd
+assert main.keep_partial("chzzk-live-556", {"folder": ""}) == pf and os.path.exists(pf)
+main.os.replace, main.time.sleep, main.OUT = real_rep, real_sleep, real_out
 print("queue page ok")

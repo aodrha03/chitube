@@ -126,6 +126,8 @@ ADULT_MSG = "성인 인증 필요 — 치지직 로그인(성인 인증된 계�
 
 BOT_RE = re.compile(r"not a bot|HTTP Error 429|Too Many Requests|try again later|rate.?limit", re.I)
 UPCOMING_RE = re.compile(r"will begin|Premieres in|live event will", re.I)
+NOT_LIVE_RE = re.compile(r"not currently live", re.I)  # 치지직 API 가 막 시작한 방송을 잠깐 '종료'로 알려 줄 때 yt-dlp 오류
+STALL_SEC = 90  # 생방송 녹화 파일이 이만큼 안 커지면 멈춘 것으로 보고 새 파일로 이어서 녹화
 CHANNEL_RE = re.compile(r"^(https?://(?:www\.|m\.)?youtube\.com/(?:@[^/?#]+|channel/[^/?#]+|c/[^/?#]+))"
                         r"(?:/(?:videos|shorts|streams|featured|live))?/?$")
 
@@ -161,7 +163,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.0.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.0.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -862,6 +864,14 @@ def run_job(job, s):
         elif UPCOMING_RE.search(msg):
             q("DELETE FROM jobs WHERE id=?", (jid,))  # 아직 시작 안 한 라이브 → 다음 확인 때 다시 등록
             log(f"예정된 라이브, 시작 후 다시 확인: {job['title']}")
+        elif (job["live"] and NOT_LIVE_RE.search(msg) and (job["retries"] or 0) < 6
+              and not keep_partial(job["video_id"], s, dry=True) and live_now(job)):
+            # 방송 시작 직후 치지직 API 가 잠깐 '종료'로 알려 줘 녹화가 바로 실패함 (예전엔 오류 카드 + 새 파일로 이어서 녹화 = 한 번 튐)
+            # → 아직 녹화한 게 없고 방송이 켜져 있으면 같은 작업을 10초 뒤 다시 (최대 6번 = 1분)
+            RETRY_LIVE.add(jid)
+            q("UPDATE jobs SET status='queued', progress=0, error=NULL, retries=COALESCE(retries,0)+1 WHERE id=?", (jid,))
+            log(f"방송 시작 직후라 아직 준비 안 됨 → 10초 뒤 다시 녹화: {job['title']}")
+            time.sleep(10)
         elif "chzzk.naver.com" in job["url"] and ADULT_RE.search(msg):
             # 성인 인증이 필요한 영상은 다시 시도해도 같은 실패 → 자동 재시도 안 함 (retries 를 한도로), 로그인 후 '다시 받기'
             q("UPDATE jobs SET status='error', error=?, retries=?, finished=? WHERE id=?", (ADULT_MSG, MAX_RETRIES, time.time(), jid))
@@ -886,7 +896,7 @@ def watch_size(jid, d, name, stop, live=True):
     → aria2c 가 기록하는 완료 조각 목록(.aria2)으로 계산"""
     pat = os.path.join(glob.escape(d), "**", glob.escape(name) + "*.part")
     status = "recording" if live else "downloading"
-    prev = None  # 이어받기면 처음부터 받은 양이 커서, 첫 측정은 속도 계산에서 뺌
+    prev, st = None, {}  # prev: 이어받기면 처음부터 받은 양이 커서, 첫 측정은 속도 계산에서 뺌
     while not stop:
         try:
             parts = glob.glob(pat, recursive=True)  # 같은 제목의 예전 녹화 조각이 남아 있을 수 있어 가장 최근 파일만
@@ -905,6 +915,8 @@ def watch_size(jid, d, name, stop, live=True):
                          "eta": int((total - got) / speed) if total and speed else None,
                          "progress": got / total * 100 if total else 0}
             prev = got
+            if live:
+                stall_check(jid, got, st)
         except OSError:
             pass
         time.sleep(3)
@@ -919,10 +931,34 @@ def probe_duration(path):
         return 0
 
 
+def stall_check(jid, size, st):
+    """생방송 녹화가 멈췄는지(파일이 STALL_SEC 동안 안 커짐) 보고, 멈췄으면 ffmpeg 를 끝내 지금까지 녹화분을 저장하고
+    새 파일로 이어서 녹화되게 (continue_live). 예: 윈도우 탐색기로 녹화 중인 파일을 복사하면 그동안 파일이 잠겨 ffmpeg 가 멈춤.
+    먼저 'q'(정상 종료), 그래도 30초 안에 안 끝나면(쓰기에서 멈춰 'q' 를 못 읽음) 강제 종료"""
+    now = time.time()
+    if size > st.get("size", -1):
+        st.update(size=size, t=now, acted=0)
+        return
+    idle, acted = now - st["t"], st.get("acted", 0)
+    if idle < STALL_SEC or acted >= 2 or (acted == 1 and idle < STALL_SEC + 30):
+        return
+    j = q("SELECT video_id, title FROM jobs WHERE id=?", (jid,))
+    if not j:
+        return
+    if not acted:
+        log(f"녹화가 {STALL_SEC}초째 멈춤 → 지금까지 녹화분 저장하고 새 파일로 이어서 녹화: {j[0]['title']}")
+        stop_recording(j[0]["video_id"])
+    else:
+        for pid, _ in procs(b"ffmpeg", j[0]["video_id"]):
+            os.kill(pid, 9)
+        log(f"녹화가 멈춘 채 응답이 없어 강제로 끝냄 → 새 파일로 이어서 녹화: {j[0]['title']}")
+    st["acted"] = acted + 1
+
+
 def watch_stream(jid, prog, duration, stop, live=False):
     """받으면서(녹화하면서) 압축: ffmpeg -progress 파일(key=value 가 계속 덧붙음)의 마지막 값으로 진행률·남은 시간 표시.
     bytes/speed 는 디스크에 쓴 압축본 기준 (받는 원본 양이 아님). 생방송은 끝을 몰라 녹화한 양·속도만"""
-    t0 = time.time()
+    t0, st = time.time(), {}
     while not stop:
         try:
             with open(prog, "rb") as f:
@@ -935,6 +971,8 @@ def watch_stream(jid, prog, duration, stop, live=False):
             LIVE[jid] = {"status": "recording" if live else "downloading", "streaming": True, "bytes": size, "speed": size / el if el else None,
                          "progress": min(done / duration * 100, 100) if duration else 0,
                          "eta": int((duration - done) * el / done) if duration and done > 0 else None}
+            if live:
+                stall_check(jid, size, st)
         except OSError:
             pass
         time.sleep(3)
@@ -1029,13 +1067,21 @@ def keep_partial(vid, s, dry=False):
     dry = 바꾸지 않고 보존할 만한 녹화분이 있는지만"""
     for f in glob.glob(os.path.join(glob.escape(safe_dir(s["folder"])), "**", f"*{glob.escape(f'[{vid}]')}*.part"), recursive=True):
         if os.path.getsize(f) > 1e6:  # 1MB 이하는 녹화된 게 거의 없음
-            if not dry:
-                os.replace(f, f[:-5])
-            return f[:-5]
+            if dry:
+                return f[:-5]
+            for _ in range(5):  # 윈도우에서 탐색기가 파일을 복사 중이면 잠겨 이름을 못 바꿈 → 잠깐씩 기다렸다 다시
+                try:
+                    os.replace(f, f[:-5])
+                    return f[:-5]
+                except OSError:
+                    time.sleep(3)
+            log(f"녹화 파일 이름을 바꾸지 못해 .part 이름 그대로 보존: {os.path.basename(f)}")
+            return f
     return None
 
 
 STOPPED = set()  # 사용자가 "녹화 중지"한 job → 이어서 녹화 안 함
+RETRY_LIVE = set()  # 방송 시작 직후라 같은 작업을 다시 녹화하기로 한 job → 이어서 녹화(새 파일) 안 함
 
 
 def part_of(vid):
@@ -1043,6 +1089,19 @@ def part_of(vid):
     유튜브 영상 ID 는 정확히 11자라, ID 자체가 '…-p12' 로 끝나도 이어서 녹화 파일로 오해하지 않음"""
     m = re.fullmatch(r"(chzzk-live-\d+|[\w-]{11})-p(\d+)", vid)
     return (m.group(1), int(m.group(2))) if m else (vid, 1)
+
+
+def live_now(job):
+    """이 녹화 작업의 방송이 아직 켜져 있는지 (치지직: 같은 방송 ID, 유튜브: is_live)"""
+    base = part_of(job["video_id"])[0]
+    try:
+        if "chzzk.naver.com" in job["url"]:
+            cid = re.search(r"/live/([0-9a-f]{32})", job["url"]).group(1)
+            return any(e["id"] == base for e in chzzk_live(cid))
+        with yt_dlp.YoutubeDL(base_opts(settings(), job["url"])) as y:
+            return y.extract_info(job["url"], download=False, process=False).get("live_status") == "is_live"
+    except Exception:
+        return False
 
 
 def continue_live(job):
@@ -1053,19 +1112,11 @@ def continue_live(job):
         return
     if (q("SELECT error FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("error") == ADULT_MSG:
         return  # 성인 인증 실패는 이어서 녹화해도 또 실패
-    base, n = part_of(job["video_id"])
-    if n >= 50:
+    if job["id"] in RETRY_LIVE:  # 같은 작업을 다시 녹화하기로 함 (방송 시작 직후 재시도) → 새 파일로 이어 가지 않음
+        RETRY_LIVE.discard(job["id"])
         return
-    try:
-        if "chzzk.naver.com" in job["url"]:  # 같은 방송(liveId)이 아직 켜져 있는지
-            cid = re.search(r"/live/([0-9a-f]{32})", job["url"]).group(1)
-            still = any(e["id"] == base for e in chzzk_live(cid))
-        else:
-            with yt_dlp.YoutubeDL(base_opts(settings(), job["url"])) as y:
-                still = y.extract_info(job["url"], download=False, process=False).get("live_status") == "is_live"
-    except Exception:
-        still = False
-    if not still:
+    base, n = part_of(job["video_id"])
+    if n >= 50 or not live_now(job):
         return
     q("UPDATE jobs SET cut=? WHERE id=?", (time.time(), job["id"]))  # 방송 중에 녹화가 끝남 = 끊김 → 영상 정보에 표시
     if add_entries([{"id": f"{base}-p{n + 1}", "url": job["url"], "title": job["title"], "live_status": "is_live",
