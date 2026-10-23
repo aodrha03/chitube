@@ -1,3 +1,4 @@
+import io
 import json
 from main import BOT_RE, DEFAULTS, ffmpeg_cmd, next_check, normalize, resolve, safe_dir, sub_urls
 
@@ -478,4 +479,36 @@ assert env_of("Linux version 6.8.0-117-generic", "Users/")[0] == "mac"
 assert env_of("Linux version 4.4.302+", "etc/synoinfo.conf")[0] == "synology"
 assert env_of("Linux version 6.1.0-18-amd64", osrel='PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\n') == ("linux", "리눅스 · Debian GNU/Linux 12 (bookworm)")
 assert all(set(v) == {"vaapi", "nvenc"} for v in main.NO_HW_WHY.values())
+# 원본 사라짐: 목록의 가장 오래된 받은 영상보다 새로운데 목록에 없으면 표시, 다시 나오면 지움, 더 오래된 건 판단 안 함
+main.q("INSERT INTO subs(url, name) VALUES('https://www.youtube.com/@gone_test', 'g')")
+gsid = main.q("SELECT id FROM subs WHERE url='https://www.youtube.com/@gone_test'")[0]["id"]
+for vid, d in (("goneA000001", "20261001"), ("goneB000001", "20261005"), ("goneC000001", "20260901")):
+    main.q("INSERT INTO jobs(video_id,url,title,opts,status,sub_id,kind,meta) VALUES(?,?,?,?,?,?,?,?)",
+           (vid, "u", vid, "{}", "done", gsid, "videos", json.dumps({"upload_date": d})))
+g = main.mark_source_gone(gsid, "videos", {"goneA000001"})
+assert [x["title"] for x in g] == ["goneB000001"]  # C 는 목록 범위보다 오래돼 판단하지 않음
+gone_of = lambda v: json.loads(main.q("SELECT meta FROM jobs WHERE video_id=?", (v,))[0]["meta"]).get("source_gone")
+assert gone_of("goneB000001") and not gone_of("goneC000001")
+assert any(j["gone"] for j in main.jobs(sub=gsid)["jobs"])  # 목록 카드에 표시 칸
+assert main.mark_source_gone(gsid, "videos", {"goneA000001", "goneB000001"}) == [] and not gone_of("goneB000001")  # 다시 나오면 지움
+# 코어 2~3개면 x265 멀티스레드를 직접 켬, 많으면 x265 기본값 그대로
+real_aff = main.os.sched_getaffinity
+main.os.sched_getaffinity = lambda pid: {0, 1}
+assert "pools=2:frame-threads=2" in main.encode_args(main.settings() | {"codec": "h265"})[1]
+main.os.sched_getaffinity = lambda pid: set(range(112))
+assert "-x265-params" not in main.encode_args(main.settings() | {"codec": "h265"})[1]
+main.os.sched_getaffinity = real_aff
+# 치튜브 새 버전 알림: GitHub 최신 릴리스가 더 높으면 '새 버전 있음'
+class FakeResp(io.BytesIO):
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+real_open = main.urllib.request.urlopen
+main.urllib.request.urlopen = lambda req, timeout=0: FakeResp(json.dumps({"tag_name": "99.0.0", "info": {"version": "0"}}).encode())
+main.check_updates()
+ct = next(i for i in main.STATE["updates"]["items"] if i["name"] == "치튜브")
+assert ct["outdated"] and ct["latest"] == "99.0.0" and ct["url"].endswith("/releases/latest")
+main.urllib.request.urlopen = lambda req, timeout=0: FakeResp(json.dumps({"tag_name": "1.0", "info": {"version": "0"}}).encode())
+main.check_updates()
+assert not next(i for i in main.STATE["updates"]["items"] if i["name"] == "치튜브")["outdated"]  # 태그 "1.0" 은 1.0.x 보다 낮음
+main.urllib.request.urlopen = real_open
 print("queue page ok")

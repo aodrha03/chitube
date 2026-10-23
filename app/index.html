@@ -495,6 +495,9 @@ const EN = {
   '이 시놀로지 모델에는 인텔 그래픽(퀵싱크)이 없습니다 (ARM · AMD 모델) → CPU 로 압축': 'This Synology model has no Intel graphics (Quick Sync) (ARM/AMD model) → encoding on CPU',
   '시놀로지 Container Manager 는 엔비디아 그래픽카드를 지원하지 않습니다 → CPU 로 압축': 'Synology Container Manager does not support NVIDIA GPUs → encoding on CPU',
   '서버에 인텔 내장 그래픽이 없습니다 (있으면 자동 연결) → CPU 로 압축': 'the server has no Intel integrated graphics (attached automatically if present) → encoding on CPU',
+  '원본 사라짐': 'Source gone', '점검 때 채널 목록에서 사라짐 (삭제 · 비공개 등) · 받은 파일은 그대로': 'Gone from the channel list at the last audit (deleted/private) · your file is kept',
+  '채널 목록에서 사라짐 · 받은 파일은 그대로': 'gone from the channel list · your file is kept', '점검 때 채널 목록에 없었습니다 (삭제 · 비공개 등). 이 파일은 받아 둔 보관본입니다.': 'it was not in the channel list at the audit (deleted/private). This file is your archived copy.',
+  '새 버전 받기': 'Get new version',
   '엔비디아': 'NVIDIA', '기본 런타임으로 설정:': 'set it as the default runtime:', '→ 도커 재시작': '→ restart Docker', '그래픽카드': 'GPU',
   '기타': 'Other', '최신': 'latest', '다운로드': 'Download', '개 중': ' of', '까지)': 'until)', '30분': '30 min', '1시간': '1 h', '3시간': '3 h', '6시간': '6 h', '안 됨': 'no', '곧': 'soon',
 };
@@ -936,7 +939,7 @@ const card = (j, p, pos = 0) => {
     ${j.status === 'done' ? '' : `<div class="bar"><i style="width:${(j.progress || 0).toFixed(1)}%"></i></div>`}
     <div class="body">
       <div class="t" translate="no">${esc(j.title || j.url)}</div>
-      <div class="mute">${j.cut ? '<span class="tag red" title="방송 중에 녹화가 끊김 · 영상 정보에서 끊긴 지점 확인">⚠ 끊김</span>' : ''}${j.streaming ? (j.status === 'recording' ? '녹화하면서 압축 중' : '받으면서 압축 중') : LABEL[j.status] || j.status}${pos ? ` · ${pos}번째` : ''}${active && j.status === 'compressing' && j.progress ? ` ${j.progress.toFixed(0)}%` : ''}</div>
+      <div class="mute">${j.gone ? '<span class="tag" title="점검 때 채널 목록에서 사라짐 (삭제 · 비공개 등) · 받은 파일은 그대로">원본 사라짐</span>' : ''}${j.cut ? '<span class="tag red" title="방송 중에 녹화가 끊김 · 영상 정보에서 끊긴 지점 확인">⚠ 끊김</span>' : ''}${j.streaming ? (j.status === 'recording' ? '녹화하면서 압축 중' : '받으면서 압축 중') : LABEL[j.status] || j.status}${pos ? ` · ${pos}번째` : ''}${active && j.status === 'compressing' && j.progress ? ` ${j.progress.toFixed(0)}%` : ''}</div>
       ${active && j.status !== 'compressing' && prog(j) ? `<div class="mute">${prog(j)}</div>` : ''}
       ${j.error && !j.err_seen ? `<div class="err" title="${esc(j.error)}">${esc(koErr(j.error).slice(0, 120))}</div>` : ''}
     </div>
@@ -1087,6 +1090,7 @@ let ATAB = 'files';
 function auditTabs(r) {
   const tabs = [['files', '파일 문제', r.file_issues, i => `<div class="arow"><a onclick="detail(${i.id})" translate="no">${esc(i.title)}</a><span class="err">${esc(i.issue)}</span>
       <button class="sm" onclick="confirm('기존 파일을 지우고 다시 받을까요?') && act('/api/jobs/${i.id}/redownload','POST')">다시 받기</button></div>`],
+    ['gone', '원본 사라짐', r.gone || [], g => `<div class="arow"><a onclick="detail(${g.id})" translate="no">${esc(g.title || '')}</a><span class="mute">채널 목록에서 사라짐 · 받은 파일은 그대로</span><span></span></div>`],
     ['gaveup', '다운로드 포기', r.gave_up, g => `<div class="arow"><a onclick="detail(${g.id})" translate="no">${esc(g.title || '')}</a><span class="err" title="${esc(g.error)}">${esc(koErr(g.error))}</span><span></span></div>`],
     ['subs', '유튜버별 비교', r.subs, x => `<div class="arow"><span translate="no">${esc(x.name)}</span><span class="mute">최신 ${x.listed}개 비교${x.missing ? ` · <b>놓친 ${x.missing}개 → 대기열</b>` : ''}</span><span class="err">${x.error ? esc(koErr(x.error).slice(0, 60)) : ''}</span></div>`]
   ].filter(t => t[2].length);
@@ -1105,9 +1109,10 @@ function renderUpdates(st) {
   document.getElementById('updinfo').innerHTML = !u ? '업데이트 확인 중...' : out.length
     ? `<b style="color:var(--fg)">업데이트 있음:</b> ${out.map(i => `${esc(i.name)} ${esc(i.latest.replace(/^v/, ''))}`).join(', ')}`
     : `프로그램 최신 · ${clock(u.checked)} 확인`;
-  document.getElementById('updates').innerHTML = out.some(i => i.how === 'restart')
-    ? `<button class="sm primary" onclick="applyUpdates()">재시작해서 업데이트</button>`
-    : `<button class="sm" onclick="checkUpdates(this)">지금 확인</button>`;
+  const rel = out.find(i => i.how === 'release');  // 치튜브 새 버전 → 릴리스 페이지에서 받기 (설치 환경마다 업데이트 방법이 달라 안내만)
+  document.getElementById('updates').innerHTML = (rel ? `<a href="${esc(rel.url)}" target="_blank" rel="noopener"><button class="sm primary">새 버전 받기 · ${esc(rel.latest.replace(/^v/, ''))}</button></a> ` : '')
+    + (out.some(i => i.how === 'restart') ? `<button class="sm primary" onclick="applyUpdates()">재시작해서 업데이트</button>`
+       : `<button class="sm" onclick="checkUpdates(this)">지금 확인</button>`);
 }
 
 async function checkUpdates(b) {
@@ -1184,7 +1189,7 @@ async function detail(id) {
         <dt>저장</dt><dd>${m.quality ? `<span class="tag">${esc(qName(m.quality))}</span>` : ''}${c ? `${c.codec.toUpperCase()} CRF ${esc(c.crf)} (${esc(c.preset)}${c.encoder ? ' · ' + esc(c.encoder) : ''}) · ${size(m.size)} <span class="mute">(${Math.round((1 - m.size / m.orig_size) * 100)}% 절약)</span>` : (m.size ? `원본 그대로 · ${size(m.size)}` : '-')}</dd>
         <dt>자막</dt><dd>${m.subtitles?.length ? m.subtitles.map(l => `<span class="tag">${esc(l)}</span>`).join('') : '-'}</dd>
         <dt>경로</dt><dd class="mute" translate="no">${esc((j.filepath || '-').replace(/^\/host\//, '/'))}</dd>
-        <dt>링크</dt><dd><a href="${esc(j.url)}" target="_blank" rel="noopener" style="color:var(--acc)">${esc(j.url)}</a></dd>
+        <dt>링크</dt><dd><a href="${esc(j.url)}" target="_blank" rel="noopener" style="color:var(--acc)">${esc(j.url)}</a>${m.source_gone ? `<div class="mute">원본 사라짐 — ${date(new Date(m.source_gone * 1000).toISOString().slice(0, 10).replace(/-/g, ''))} 점검 때 채널 목록에 없었습니다 (삭제 · 비공개 등). 이 파일은 받아 둔 보관본입니다.</div>` : ''}</dd>
       </dl>
       ${j.error && !j.cut ? `<div class="err">${esc(koErr(j.error))}${koErr(j.error) !== j.error ? `<div class="mute">원문: ${esc(j.error)}</div>` : ''}</div>` : ''}
       ${m.description ? `<pre translate="no">${esc(m.description)}</pre>` : ''}

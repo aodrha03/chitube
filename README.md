@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.0.2-ff0033" alt="v1.0.2"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.0.3-ff0033" alt="v1.0.3"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
@@ -199,7 +199,7 @@ flowchart LR
 <details>
 <summary><b>스트리머가 영상을 지우면 받은 파일도 지워지나요?</b></summary>
 
-아니요. 이 프로그램은 받은 영상을 자동으로 지우지 않습니다. '다시 받기'를 눌러도 새로 받기에 성공해야 기존 파일을 바꾸고, 실패하면 기존 파일이 그대로 남습니다.
+아니요. 이 프로그램은 받은 영상을 자동으로 지우지 않습니다. '다시 받기'를 눌러도 새로 받기에 성공해야 기존 파일을 바꾸고, 실패하면 기존 파일이 그대로 남습니다. 점검 때 채널에서 사라진 영상은 **원본 사라짐** 으로 표시만 됩니다.
 </details>
 
 <details>

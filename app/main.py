@@ -163,7 +163,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.0.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.0.3"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -538,6 +538,9 @@ def encode_args(s, vbit=0, hw="cpu", ts=False):
                  "-pix_fmt", "yuv420p10le", *limit]
         else:
             v = ["-c:v", CPU_ENC[s["codec"]], "-crf", str(s["crf"]), "-preset", s["preset"], *limit]
+            if s["codec"] == "h265" and 2 <= (n := len(os.sched_getaffinity(0))) <= 3:
+                # x265 는 코어가 적으면 스레드 풀을 안 만들어 사실상 싱글로 압축 (실측 2코어: 12.3초 → 8.3초). 코어 많은 PC 는 원래 멀티라 그대로
+                v += ["-x265-params", f"pools={n}:frame-threads=2"]
         if s["codec"] == "h265" and not ts:
             v += ["-tag:v", "hvc1"]  # Apple/Plex 다이렉트 재생용
     return pre, [*v, "-c:a", "aac", "-b:a", s["audio_bitrate"]]
@@ -1293,10 +1296,34 @@ def next_audit(hours, now=None):
     return min(t if t > now else t + timedelta(days=1) for t in ts).timestamp() if ts else None
 
 
+def mark_source_gone(sub_id, kind, listed):
+    """점검 때 이미 받아 온 채널 목록(최신 N개)으로 '원본이 사라진' 받은 영상 표시 → [{id, title}] (새로 요청하지 않음).
+    목록에 있는 받은 영상 중 가장 오래된 업로드 날짜보다 새로운데 목록에 없으면 삭제 · 비공개 등으로 사라진 것.
+    다시 목록에 나오면 표시를 지움. 표시만 할 뿐 파일은 그대로 (치지직 생방송 녹화는 목록에 없으므로 제외)"""
+    rows = [r | {"m": json.loads(r["meta"] or "{}")} for r in q(
+        "SELECT id, title, video_id, meta FROM jobs WHERE sub_id=? AND kind=? AND status='done' AND video_id NOT LIKE 'chzzk-live-%'", (sub_id, kind))]
+    dates = [r["m"]["upload_date"] for r in rows if r["video_id"] in listed and r["m"].get("upload_date")]
+    if not dates:
+        return []
+    floor, gone = min(dates), []
+    for r in rows:
+        m = r["m"]
+        if r["video_id"] in listed:
+            if m.pop("source_gone", None):
+                q("UPDATE jobs SET meta=? WHERE id=?", (json.dumps(m, ensure_ascii=False), r["id"]))
+        elif (m.get("upload_date") or "") > floor:
+            if not m.get("source_gone"):
+                m["source_gone"] = time.time()
+                q("UPDATE jobs SET meta=? WHERE id=?", (json.dumps(m, ensure_ascii=False), r["id"]))
+                log(f"원본이 채널에서 사라짐 (받은 파일은 그대로): {r['title']}")
+            gone.append({"id": r["id"], "title": r["title"]})
+    return gone
+
+
 def run_audit(s):
     """유튜브 ↔ 다운로드 기록 비교, 파일 상태 확인, 실패 재시도. 구독 확인 스레드에서 차례로 실행."""
     STATE["auditing"] = True
-    started, res = time.time(), {"subs": [], "missing_added": 0}
+    started, res = time.time(), {"subs": [], "missing_added": 0, "gone": []}
     log("다운로드 점검 시작")
     try:
         known = {r["video_id"] for r in q("SELECT video_id FROM jobs")}
@@ -1318,6 +1345,7 @@ def run_audit(s):
                 miss = set(find_missing([e["id"] for e in entries], known, int(s["sub_fetch_limit"])))
                 r["listed"] += len(entries)
                 r["missing"] += add_entries([e for e in entries if e["id"] in miss], kind, sub["id"])
+                res["gone"] += mark_source_gone(sub["id"], kind, {e["id"] for e in entries})
                 time.sleep(random.uniform(3, 8))  # 탭 사이 대기
             res["subs"].append(r)
             res["missing_added"] += r["missing"]
@@ -1381,6 +1409,9 @@ def versions():
     return v
 
 
+GITHUB_REPO = "aodrha03/chitube"  # 새 버전 알림에 쓰는 저장소
+
+
 def ver(v):
     return tuple(int(x) for x in re.findall(r"\d+", v or "")[:3])  # "2026.08.19" / "deno 2.9.7 (...)" → 숫자 3개
 
@@ -1401,6 +1432,9 @@ def check_updates():
         {"name": "deno", "current": VERSIONS.get("deno"), "how": "restart",
          "latest": latest("https://api.github.com/repos/denoland/deno/releases/latest", lambda d: d["tag_name"])},
         {"name": "ffmpeg", "current": VERSIONS.get("ffmpeg"), "how": "rebuild", "latest": None},
+        # 치튜브 자체: GitHub 의 최신 릴리스 (새 버전은 릴리스 페이지에서 받아 덮어쓰고 다시 빌드)
+        {"name": "치튜브", "current": APP_VERSION, "how": "release", "url": f"https://github.com/{GITHUB_REPO}/releases/latest",
+         "latest": latest(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", lambda d: d["tag_name"])},
     ]
     for i in items:
         i["outdated"] = bool(i["current"] and i["latest"]) and ver(i["latest"]) > ver(i["current"])
@@ -1471,7 +1505,7 @@ SORTS = {"new": "id DESC", "old": "id", "title": "title COLLATE NOCASE, id DESC"
 def jobs(sub: int | None = None, platform: str | None = None, status: str | None = None, search: str | None = None,
          page: int = 1, per: int = 300, sort: str = "new"):
     """page/per: 화면 아래 1,2,3… 페이지. 대기 목록은 받을 순서(오래된 것부터), 나머지는 최근 것부터"""
-    cols = "id, video_id, url, title, sub_id, status, progress, error, err_seen, kind, live, thumb, cut"  # meta(설명 등)는 상세에서만
+    cols = "id, video_id, url, title, sub_id, status, progress, error, err_seen, kind, live, thumb, cut, json_extract(meta, '$.source_gone') AS gone"  # meta(설명 등)는 상세에서만
     where, args = [], []
     if sub:
         where, args = ["sub_id=?"], [sub]
@@ -1921,6 +1955,8 @@ def audit():
         res["file_issues"] = [i for i in res.get("file_issues", []) if (j := now.get(i["id"])) and j["status"] == "done"
                               and not (i["issue"].startswith("파일 없음") and j["filepath"] and os.path.isfile(j["filepath"]))]
         res["gave_up"] = [g for g in res.get("gave_up", []) if (now.get(g["id"]) or {}).get("status") == "error"]
+        gone_now = {r["id"] for r in q("SELECT id FROM jobs WHERE json_extract(meta, '$.source_gone') IS NOT NULL")}
+        res["gone"] = [g for g in res.get("gone", []) if g["id"] in gone_now]
     return {"history": rows, "next": next_audit(audit_hours(settings())), "running": STATE.get("auditing", False)}
 
 
