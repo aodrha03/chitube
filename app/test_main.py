@@ -151,6 +151,7 @@ print("ok")
 import os, tempfile, main, yt_dlp
 main.DB = os.path.join(tempfile.mkdtemp(), "t.db")
 main.init_db()
+main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('min_free_gb', '0')")  # 테스트하는 PC 디스크가 거의 차 있어도 작업 스레드가 멈추지 않게
 
 
 class Blocked:
@@ -511,4 +512,39 @@ main.urllib.request.urlopen = lambda req, timeout=0: FakeResp(json.dumps({"tag_n
 main.check_updates()
 assert not next(i for i in main.STATE["updates"]["items"] if i["name"] == "치튜브")["outdated"]  # 태그 "1.0" 은 1.0.x 보다 낮음
 main.urllib.request.urlopen = real_open
+# 구독 필터: 포함 단어 하나라도 · 제외 단어 없음 · 최소 길이(분). 길이 모르는 영상(생방송)은 통과
+f = {"title_inc": "노래, 커버", "title_exc": "쇼츠", "min_min": "3"}
+assert main.sub_match(f, {"title": "오늘의 노래", "duration": 300}) and not main.sub_match(f, {"title": "잡담", "duration": 300})
+assert not main.sub_match(f, {"title": "노래 쇼츠", "duration": 300}) and not main.sub_match(f, {"title": "커버", "duration": 60})
+assert main.sub_match(f, {"title": "커버 생방송"}) and main.sub_match({"title_inc": None, "title_exc": "", "min_min": ""}, {"title": "x"})
+main.q("INSERT INTO subs(url, name, title_exc) VALUES('https://www.youtube.com/@flt_test', 'f', '예고')")
+fsid = main.q("SELECT id FROM subs WHERE url='https://www.youtube.com/@flt_test'")[0]["id"]
+assert main.add_entries([{"id": "fltA0000001", "url": "u", "title": "본편"}, {"id": "fltB0000001", "url": "u", "title": "예고편"}], "videos", fsid) == 1
+assert main.add_entries([{"id": "fltB0000001", "url": "u", "title": "예고편"}], "videos") == 1  # 수동 다운로드는 필터 없음
+# 방송 시간 패턴: 이어서 녹화한 조각은 같은 방송이라 한 번만
+ts = main.time.mktime((2026, 10, 19, 21, 5, 0, 0, 0, -1))  # 월요일 21시
+for vid in ("chzzk-live-901", "chzzk-live-901-p2"):
+    main.q("INSERT INTO jobs(video_id,url,title,opts,live,sub_id,started) VALUES(?,?,?,?,1,?,?)", (vid, "u", "방송", "{}", fsid, ts))
+pt = main.sub_pattern(fsid)
+assert pt["n"] == 1 and pt["grid"][0][21] == 1
+# 채널별 용량: 구독 이름으로 묶음
+main.q("UPDATE jobs SET status='done', meta=? WHERE video_id='fltA0000001'", (json.dumps({"size": 5e9}),))
+assert {"name": "f", "size": 5e9, "n": 1} in main.status()["usage"]
+assert main.bad_setting("auto_merge", "2") and not main.bad_setting("sponsorblock", "1")
+# 방송 끝 → 조각이 여러 개면 자동 합치기 (설정으로 끔), 조각 하나면 안 함
+calls, real_ln, real_mp = [], main.live_now, main.merge_parts
+main.live_now, main.merge_parts = (lambda j: False), (lambda jid: calls.append(jid))
+lj = {"id": 99901, "video_id": "chzzk-live-5-p2", "title": "끝난 방송"}
+main.continue_live(lj)
+main.continue_live(lj | {"id": 99902, "video_id": "chzzk-live-5"})
+main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('auto_merge', '0')")
+main.continue_live(lj | {"id": 99903})
+assert calls == [99901]
+main.live_now, main.merge_parts = real_ln, real_mp
+main.q("DELETE FROM settings WHERE key='auto_merge'")
+# 녹화 썸네일: 옆에 .jpg 가 없으면 녹화 장면으로
+td = tempfile.mkdtemp()
+main.subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10", "-t", "2", f"{td}/rec.mp4"], check=True)
+main.frame_thumb(f"{td}/rec.mp4", 2)
+assert os.path.getsize(f"{td}/rec.jpg") > 0
 print("queue page ok")

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import yt_dlp
 import xml.etree.ElementTree as ET
 from yt_dlp.cookies import YoutubeDLCookieJar
-from yt_dlp.postprocessor import FFmpegMetadataPP, FFmpegSubtitlesConvertorPP
+from yt_dlp.postprocessor import FFmpegMetadataPP, FFmpegSubtitlesConvertorPP, ModifyChaptersPP, SponsorBlockPP
 from yt_dlp.postprocessor.metadataparser import MetadataParserPP
 import asyncio
 from fastapi import FastAPI, HTTPException, WebSocket
@@ -84,6 +84,8 @@ DEFAULTS = {
     "subtitles": "all",         # all(직접 만든 자막 전부, 없으면 자동 생성 원어) | manual(직접 만든 자막만) | off
     "video_folder": "1",        # 1 = 영상마다 폴더 (영상·썸네일·자막·nfo 를 한 폴더에) | 0 = 시즌 폴더에 바로
     "stream_compress": "1",     # 1 = 받으면서 바로 압축 (원본·임시 파일 없이 압축본만 디스크에) | 0 = 다 받은 뒤 압축
+    "auto_merge": "1",          # 1 = 방송이 끝나면 끊겨서 나뉜 녹화 조각을 자동으로 한 파일로 (형식이 같을 때만, 재인코딩 없음)
+    "sponsorblock": "0",        # 1 = 유튜브 영상의 광고·협찬 구간을 SponsorBlock(사용자 제보 공개 DB)에서 찾아 챕터로 표시만 (잘라내지 않음)
     # 탭(플랫폼)별 기본값 - 비우면 위의 공통 설정. 저장 경로는 '/' 로 시작하면 서버 절대 경로
     "youtube_quality": "", "youtube_max_height": "", "youtube_folder": "YouTube",
     "chzzk_quality": "", "chzzk_max_height": "", "chzzk_folder": "Chzzk",
@@ -163,7 +165,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.0.3"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.1.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -193,7 +195,8 @@ def init_db():
                    ("jobs", "finished REAL"), ("jobs", "live_open TEXT"), ("jobs", "err_seen INTEGER DEFAULT 0"),  # err_seen: 오류를 확인함(목록·상태에서 숨김)
                    ("subs", "avatar TEXT"), ("subs", "quality TEXT"),
                    ("subs", "max_height TEXT"), ("subs", "folder TEXT"), ("subs", "kinds TEXT"),
-                   ("subs", "interval_min TEXT"), ("subs", "last_error TEXT"), ("subs", "last_found INTEGER")):
+                   ("subs", "interval_min TEXT"), ("subs", "last_error TEXT"), ("subs", "last_found INTEGER"),
+                   ("subs", "title_inc TEXT"), ("subs", "title_exc TEXT"), ("subs", "min_min TEXT")):
         try:  # 기존 DB 업그레이드
             c.execute(f"ALTER TABLE {t} ADD COLUMN {col}")
         except sqlite3.OperationalError:
@@ -288,7 +291,20 @@ def clean_sub(body):
     iv = body.interval_min.strip()
     if iv and (not iv.isdigit() or int(iv) < MIN_INTERVAL):
         raise HTTPException(400, f"확인 주기는 {MIN_INTERVAL}분 이상이어야 합니다")
-    return kinds, iv
+    mm = body.min_min.strip()
+    if mm and not mm.isdigit():
+        raise HTTPException(400, "최소 길이는 분 단위 숫자로 적어 주세요")
+    return kinds, iv, (body.title_inc.strip(), body.title_exc.strip(), mm)
+
+
+def sub_match(f, e):
+    """구독 필터: 제목에 포함 단어(쉼표 구분, 하나라도) 있고, 제외 단어는 없고, 길이가 최소 길이(분) 이상인 영상만.
+    길이를 모르는 영상(생방송 등)은 길이 조건 통과"""
+    t = (e.get("title") or "").lower()
+    words = lambda k: [w.strip().lower() for w in (f[k] or "").split(",") if w.strip()]
+    inc, exc = words("title_inc"), words("title_exc")
+    return ((not inc or any(w in t for w in inc)) and not any(w in t for w in exc)
+            and not (f["min_min"] and e.get("duration") and e["duration"] < int(f["min_min"]) * 60))
 
 
 def base_opts(s, url=""):
@@ -354,6 +370,8 @@ def list_entries(url, limit=None):
 
 def add_entries(entries, kind, sub_id=None, opts=None):
     added = 0
+    if f := sub_id and q("SELECT title_inc, title_exc, min_min FROM subs WHERE id=?", (sub_id,)):
+        entries = [e for e in entries if sub_match(f[0], e)]
     for e in entries:
         # 이미 수동으로 받은 영상이면 구독에 연결만 (RETURNING 은 실제 변경된 행만 나옴)
         added += len(q("""INSERT INTO jobs(video_id,url,title,sub_id,opts,kind,live,thumb,created,live_open) VALUES(?,?,?,?,?,?,?,?,?,?)
@@ -410,7 +428,7 @@ def chzzk_entries(url, limit=None):
         vods, page, pages = vods + c["data"], page + 1, c.get("totalPages") or 1
     vods = [v for v in vods[:limit] if not recorded_replay(cid, v)]
     return [{"id": str(v["videoNo"]), "url": f"https://chzzk.naver.com/video/{v['videoNo']}",
-             "title": v.get("videoTitle"), "thumbnail": v.get("thumbnailImageUrl")} for v in vods], name, "videos"
+             "title": v.get("videoTitle"), "thumbnail": v.get("thumbnailImageUrl"), "duration": v.get("duration")} for v in vods], name, "videos"
 
 
 REPLAY_SEEN = {}  # 다시보기 번호 → 생방송 녹화로 이미 받은 방송인지 (확인 결과 기억, 매번 API 안 부르게)
@@ -767,7 +785,11 @@ def run_job(job, s):
                 q("UPDATE jobs SET started=? WHERE id=?", (time.time(), jid))  # 실제 녹화 시작 (끊김 기록의 '빠진 시간' 계산용)
                 log(f"라이브 녹화 시작: {job['title']}")
             else:  # 녹화본(MPEG-TS, 마지막 프레임 잘림)은 메타데이터 단계에서 실패하므로 일반 영상만
-                y.add_post_processor(FFmpegMetadataPP(y, add_metadata=True), when="post_process")
+                if s["sponsorblock"] == "1" and not cz:  # 광고·협찬 구간을 챕터로 표시만 (remove 없음 → 영상은 그대로)
+                    y.add_post_processor(SponsorBlockPP(y), when="after_filter")
+                    y.add_post_processor(ModifyChaptersPP(y), when="post_process")
+                # 챕터: 유튜브 설명란의 타임스탬프 → 플레이어(Plex·VLC 등)에서 구간 이동
+                y.add_post_processor(FFmpegMetadataPP(y, add_metadata=True, add_chapters=True), when="post_process")
             if stream_hw:
                 # 고를 포맷만 먼저 확인(다운로드 안 함) → 원본 비트레이트로 '원본 대비 최대 크기' 상한 계산
                 sel = y.process_ie_result(copy.deepcopy(raw), download=False)
@@ -864,6 +886,8 @@ def run_job(job, s):
             if not os.path.exists(f.replace("-orig.srt", ".srt")):
                 os.replace(f, f.replace("-orig.srt", ".srt"))
         meta["subtitles"] = sorted(f[len(base) + 1:-4] for f in glob.glob(glob.escape(base) + ".*.srt"))
+        if is_live:
+            frame_thumb(path, dur)
         for what, step in () if cz else (("포스터", lambda: ensure_poster(path, info, job["sub_id"])),
                                          ("nfo", lambda: write_nfo(path, meta, info.get("title"), job["video_id"]))):
             try:  # 부가 기능 - 실패해도 다운로드는 성공 (포스터가 실패해도 nfo 는 만듦)
@@ -914,6 +938,8 @@ def run_job(job, s):
             # 생방송이 끊기면 그때까지 녹화분은 지우지 않고 보존 (몇 시간 녹화를 날리지 않게). 이어서 녹화는 continue_live
             # 보존했으면 '완료'로 (오류로 두면 점검이 다시 받기로 같은 방송을 처음부터 또 녹화함). 끊긴 표시는 cut 으로
             kept = keep_partial(job["video_id"], s) if job["live"] else None
+            if kept:
+                frame_thumb(kept, probe_duration(kept))
             q("UPDATE jobs SET status=?, error=?, filepath=COALESCE(?, filepath), finished=? WHERE id=?",
               ("done" if kept else "error", msg[:500], kept, time.time(), jid))
             log(f"오류: {job['title']} — {msg[:100]}" + (" (녹화분 보존)" if kept else ""))
@@ -1150,12 +1176,31 @@ def continue_live(job):
         RETRY_LIVE.discard(job["id"])
         return
     base, n = part_of(job["video_id"])
-    if n >= 50 or not live_now(job):
+    if n >= 50:
+        return
+    if not live_now(job):
+        if n > 1 and settings()["auto_merge"] == "1":  # 방송 끝 + 여러 조각 → 한 파일로
+            auto_merge(job)
         return
     q("UPDATE jobs SET cut=? WHERE id=?", (time.time(), job["id"]))  # 방송 중에 녹화가 끝남 = 끊김 → 영상 정보에 표시
     if add_entries([{"id": f"{base}-p{n + 1}", "url": job["url"], "title": job["title"], "live_status": "is_live",
                      "thumbnail": job["thumb"]}], "streams", job["sub_id"], json.loads(job["opts"] or "{}")):
         log(f"녹화 끊김 → 이어서 녹화 ({n + 1}번째 파일): {job['title']}")
+
+
+def auto_merge(job):
+    try:
+        merge_parts(job["id"])
+    except Exception as e:  # 형식이 다른 조각·오류 조각이 있으면 그대로 두고 알림 (영상 정보 창에서 직접 합치기 가능)
+        log(f"방송 끝 → 녹화 조각 자동 합치기 안 함: {job['title']} — {getattr(e, 'detail', e)}")
+
+
+def frame_thumb(path, dur):
+    """녹화 파일 옆에 '영상이름.jpg' 가 없으면(치지직 생방송 썸네일 주소 만료 등) 녹화 10% 지점 장면으로 만듦. 실패해도 무시"""
+    jpg = os.path.splitext(path.removesuffix(".part"))[0] + ".jpg"
+    if not os.path.exists(jpg):
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(int(dur * 0.1)), "-i", path, "-frames:v", "1",
+                        "-vf", "scale=-2:720", jpg], timeout=120, capture_output=True)
 
 
 def claim(live, yt, cz):
@@ -1478,6 +1523,9 @@ class Opts(BaseModel):
     folder: str = ""
     kinds: str = ""
     interval_min: str = ""
+    title_inc: str = ""  # 구독 필터 (쉼표 구분)
+    title_exc: str = ""
+    min_min: str = ""    # 최소 길이(분)
 
 
 class Url(Opts):
@@ -1783,7 +1831,7 @@ def subs(platform: str | None = None):
 
 @app.post("/api/subs")
 def add_sub(body: Url):
-    o, (kinds, iv) = clean_opts(body), clean_sub(body)
+    o, (kinds, iv, flt) = clean_opts(body), clean_sub(body)
     url, m = body.url.strip(), CHZZK_CH_RE.match(body.url.strip())
     if m:  # 치지직 채널
         try:
@@ -1801,8 +1849,8 @@ def add_sub(body: Url):
         name, avatar = info.get("channel") or info.get("uploader") or info.get("title"), avatar_of(info)
         if pl := re.search(r"[?&]list=([\w-]+)", url):  # 재생목록: 주소를 재생목록으로 고정 (watch?v=…&list=… 도), 이름은 재생목록 제목
             url, name = f"https://www.youtube.com/playlist?list={pl.group(1)}", f"{info.get('title')} (재생목록)"
-    q("INSERT OR IGNORE INTO subs(url,name,avatar,quality,max_height,folder,kinds,interval_min) VALUES(?,?,?,?,?,?,?,?)",
-      (url, name, avatar, o["quality"], o["max_height"], o["folder"], kinds, iv))  # 스케줄러가 1분 내 확인
+    q("INSERT OR IGNORE INTO subs(url,name,avatar,quality,max_height,folder,kinds,interval_min,title_inc,title_exc,min_min) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      (url, name, avatar, o["quality"], o["max_height"], o["folder"], kinds, iv, *flt))  # 스케줄러가 1분 내 확인
     log(f"구독 추가: {name}")
     if body.backfill:
         start_backfill(q("SELECT * FROM subs WHERE url=?", (url,))[0])
@@ -1840,9 +1888,21 @@ def backfill_sub(sid: int):
 
 @app.put("/api/subs/{sid}")
 def update_sub(sid: int, body: Opts):  # 이후 다운로드부터 적용 (대기 중인 영상 포함)
-    o, (kinds, iv) = clean_opts(body), clean_sub(body)
-    q("UPDATE subs SET quality=?, max_height=?, folder=?, kinds=?, interval_min=? WHERE id=?",
-      (o["quality"], o["max_height"], o["folder"], kinds, iv, sid))
+    o, (kinds, iv, flt) = clean_opts(body), clean_sub(body)
+    q("UPDATE subs SET quality=?, max_height=?, folder=?, kinds=?, interval_min=?, title_inc=?, title_exc=?, min_min=? WHERE id=?",
+      (o["quality"], o["max_height"], o["folder"], kinds, iv, *flt, sid))
+
+
+@app.get("/api/subs/{sid}/pattern")
+def sub_pattern(sid: int):
+    """이 구독의 생방송 녹화 시작 시각 → 요일(월=0) × 시간 칸별 방송 수. 이어서 녹화한 조각(-p2…)은 같은 방송이라 뺌"""
+    grid = [[0] * 24 for _ in range(7)]
+    rows = [r for r in q("SELECT video_id, started FROM jobs WHERE sub_id=? AND live=1 AND started IS NOT NULL", (sid,))
+            if part_of(r["video_id"])[1] == 1]
+    for r in rows:
+        t = time.localtime(r["started"])
+        grid[t.tm_wday][t.tm_hour] += 1
+    return {"grid": grid, "n": len(rows)}
 
 
 @app.post("/api/subs/check-all")
@@ -1941,6 +2001,10 @@ def status():
         # 확인(숨기기)하지 않은 오류만. '다시 받기 실패 → 기존 파일 보존' 처럼 완료인데 남은 안내도 포함
         "errors": q(f"SELECT id, title, error FROM jobs WHERE {NEW_ERR} ORDER BY id DESC LIMIT 10"),
         "errors_new": q(f"SELECT COUNT(*) n FROM jobs WHERE {NEW_ERR}")[0]["n"],
+        # 채널별 받은 용량 (많은 순 10개). 구독 이름, 없으면(수동 다운로드) 영상 정보의 채널
+        "usage": q("""SELECT COALESCE(s.name, json_extract(j.meta, '$.channel'), '기타') AS name, SUM(json_extract(j.meta, '$.size')) AS size,
+                      COUNT(*) AS n FROM jobs j LEFT JOIN subs s ON s.id = j.sub_id WHERE j.status='done' AND json_extract(j.meta, '$.size') > 0
+                      GROUP BY 1 ORDER BY 2 DESC LIMIT 10"""),
         "log": list(LOG)[:100],
     }
 
@@ -2231,7 +2295,7 @@ NUMERIC = {"max_height": (0, 4320), "crf": (0, 63), "ratio": (10, 200), "concurr
            "daily_limit": (1, 10000), "bot_cooldown_min": (1, 1440), "sleep_min": (0, 3600), "sleep_max": (0, 3600),
            "sleep_requests": (0, 60), "min_free_gb": (0, 100000), "login_refresh_days": (0, 365), "check_interval_min": (MIN_INTERVAL, 10080), "sub_fetch_limit": (1, 200)}
 CHOICES = {"quality": {*QUALITY, "original", "custom"}, "codec": {"none", "h264", "h265", "av1"},
-           "subtitles": {"all", "manual", "off"}, "hwaccel": {"auto", "cpu", "nvenc", "vaapi"}, "video_folder": {"0", "1"}, "stream_compress": {"0", "1"}, "live_compress": {"off", "gpu", "gpu_cpu"},
+           "subtitles": {"all", "manual", "off"}, "hwaccel": {"auto", "cpu", "nvenc", "vaapi"}, "video_folder": {"0", "1"}, "stream_compress": {"0", "1"}, "auto_merge": {"0", "1"}, "sponsorblock": {"0", "1"}, "live_compress": {"off", "gpu", "gpu_cpu"},
            "preset": {"ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"}}
 
 
@@ -2263,7 +2327,7 @@ def bad_setting(k, v):
     return None
 
 
-SUB_COLS = ("url", "name", "avatar", "enabled", "quality", "max_height", "folder", "kinds", "interval_min")
+SUB_COLS = ("url", "name", "avatar", "enabled", "quality", "max_height", "folder", "kinds", "interval_min", "title_inc", "title_exc", "min_min")
 
 
 @app.get("/api/backup")
@@ -2289,7 +2353,8 @@ def restore_sub(sub):
     iv = txt(sub.get("interval_min"))
     return (url, txt(sub.get("name")) or url, txt(sub.get("avatar")) or None, 0 if sub.get("enabled") in (0, "0", False) else 1,
             o["quality"], o["max_height"], o["folder"], ",".join(k for k in KINDS if k in txt(sub.get("kinds")).split(",")) or "videos",
-            iv if iv.isdigit() and int(iv) >= MIN_INTERVAL else None)
+            iv if iv.isdigit() and int(iv) >= MIN_INTERVAL else None,
+            txt(sub.get("title_inc")), txt(sub.get("title_exc")), txt(sub.get("min_min")) if txt(sub.get("min_min")).isdigit() else "")
 
 
 @app.post("/api/restore")

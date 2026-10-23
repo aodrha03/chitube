@@ -115,6 +115,9 @@
   .kv { display:grid; grid-template-columns:auto 1fr; gap:10px 16px; align-items:baseline; }
   .kv dt, .kv > span:nth-child(odd) { color:var(--mute); font-size:13px; }
   .meter { height:6px; background:#333; border-radius:3px; margin-top:4px; } .meter i { display:block; height:100%; border-radius:3px; background:var(--ok); }
+  .urow { display:flex; justify-content:space-between; gap:8px; margin-top:6px; } .urow span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pat { margin-top:10px; max-width:520px; } .patgrid { display:grid; grid-template-columns:20px repeat(24, 1fr); gap:2px; margin-top:4px; font-size:11px; }
+  .patgrid i { aspect-ratio:1; border-radius:2px; background:var(--ok); }
   .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--ok); } .dot.bad { background:#ff6b6b; } .dot.warn { background:var(--warn); }
   .nums { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-top:10px; }
   .nums div { background:var(--card2); border-radius:8px; padding:8px 10px; } .nums b { display:block; font-size:18px; }
@@ -237,6 +240,8 @@
         <label>다운로드 점검<select name="audit_hours"><option value="">끄기</option><option value="4">하루 1번 (새벽 4시)</option><option value="4,16">하루 2번 (새벽 4시 · 오후 4시)</option></select></label>
         <label>속도 제한 (예: 10M · 비우면 무제한)<input name="rate_limit" placeholder="무제한"></label>
         <label>로그인 갱신 안내 (일 · 0 = 끔)<input name="login_refresh_days" type="number" min="0" max="365"></label>
+        <label>끊긴 녹화 자동 합치기<select name="auto_merge"><option value="1">켜기 (방송이 끝나면 조각을 한 파일로)</option><option value="0">끄기 (영상 정보 창에서 직접)</option></select></label>
+        <label>유튜브 광고 구간 챕터 표시<select name="sponsorblock"><option value="0">끄기</option><option value="1">켜기 (SponsorBlock · 표시만, 자르지 않음)</option></select></label>
       </div>
       <details>
         <summary>고급 설정 (화질 "직접 설정"을 고른 탭에서 쓰는 값)</summary>
@@ -374,7 +379,11 @@ const EN = {
   '이미 받은 영상을 영상별 폴더로 정리': 'Move downloaded videos into per-video folders', '영상·썸네일·자막·nfo 를 함께 옮김': 'Moves video, thumbnail, subtitles and nfo together',
   '설정·구독 백업 파일 받기': 'Download settings/subscriptions backup', '서버를 옮기거나 다시 설치할 때': 'For moving or reinstalling the server',
   '백업 불러오기': 'Restore backup', '로그인 정보·받은 영상 목록은 포함 안 됨': 'Login info and the downloaded list are not included',
-  '저장됨 (다음 작업부터 적용)': 'Saved (applies from the next job)', '설정 탭 기본값': 'Settings tab default', '설정 기본값': 'Default from settings', '설정 따름': 'Follows settings',
+  '저장됨 (다음 작업부터 적용)': 'Saved (applies from the next job)', '끊긴 녹화 자동 합치기': 'Auto-merge split recordings', '켜기 (방송이 끝나면 조각을 한 파일로)': 'On (merge parts into one file when the stream ends)',
+  '끄기 (영상 정보 창에서 직접)': 'Off (merge manually in the video info window)', '유튜브 광고 구간 챕터 표시': 'Mark YouTube sponsor segments as chapters',
+  '켜기 (SponsorBlock · 표시만, 자르지 않음)': 'On (SponsorBlock · mark only, never cut)', '제목에 포함': 'Title includes', '쉼표 구분 · 하나라도': 'comma-separated · any',
+  '제목에서 제외': 'Title excludes', '최소 길이 (분)': 'Min length (min)', '제한 없음': 'No limit', '예) 노래, 커버': 'e.g. song, cover', '예) 예고, 쇼츠': 'e.g. trailer, shorts',
+  '방송 시간 패턴': 'Stream time pattern', '채널별 용량': 'Usage by channel', '필터': 'Filter', '설정 탭 기본값': 'Settings tab default', '설정 기본값': 'Default from settings', '설정 따름': 'Follows settings',
   '이 채널 설정 저장': 'Save channel settings', '대기 중인 영상부터 적용': 'Applies to queued videos too', '구독할 때만 적용': 'Applies only when subscribing',
   '하루 한 번': 'Once a day', '12시간마다': 'Every 12 h', '6시간마다': 'Every 6 h', '3시간마다': 'Every 3 h', '1시간마다': 'Hourly', '30분마다': 'Every 30 min', '분마다': ' min interval',
   '상대 경로 또는 서버 절대 경로 (/로 시작)': 'Relative path or absolute server path (starting with /)', '또는 서버 절대 경로 /volume1/video/': ' or absolute server path /volume1/video/',
@@ -673,6 +682,7 @@ function buildPlatform(p) {
     <div id="${p}-subwrap" hidden style="margin-top:16px; padding-top:16px; border-top:1px solid var(--line)">
       <div class="row"><h2 id="${p}-subname" style="margin:0" translate="no"></h2><span id="${p}-subacts"></span></div>
       <div id="${p}-subsched" class="mute" style="margin-top:4px"></div>
+      <div id="${p}-subpat"></div>
       <form id="${p}-subform" data-p="${p}" data-sub onsubmit="saveSub(event)" style="margin:12px 0">
         <div class="opts" data-opts></div>
         <button>이 채널 설정 저장</button><span class="mute">대기 중인 영상부터 적용</span>
@@ -704,6 +714,9 @@ function fillOpts(form) {
     ${form.querySelector('[data-preview]') ? '' : '<div class="mute" data-preview style="width:100%"></div>'}
     ${'sub' in form.dataset ? `${form.classList.contains('add') ? '<div class="note">구독할 때만 적용</div>' : ''}
     <label>확인 주기<select name="interval_min">${options(IV, '설정 탭 기본값')}</select></label>
+    <label>제목에 포함 <span class="mute">쉼표 구분 · 하나라도</span><input name="title_inc" placeholder="예) 노래, 커버"></label>
+    <label>제목에서 제외<input name="title_exc" placeholder="예) 예고, 쇼츠"></label>
+    <label>최소 길이 (분)<input name="min_min" type="number" min="0" placeholder="제한 없음"></label>
     <div class="checks">받을 영상: ${Object.entries(PLAT[p].kinds).map(([k, v]) => `<label><input type="checkbox" name="kind" value="${k}" ${k === 'videos' ? 'checked' : ''}>${v}</label>`).join('')}</div>
     ${form.classList.contains('add') ? `<div class="checks"><label><input type="checkbox" name="backfill">기존 영상 전부 받기 (처음 영상부터${p === 'youtube' ? ' · 하루 최대 개수만큼씩' : ''})</label>
       <span class="mute">끄면 최신 영상 몇 개부터</span></div>` : ''}` : ''}`;
@@ -717,9 +730,11 @@ document.querySelector('#settings [name=check_interval_min]').innerHTML = option
 
 const optsOf = f => ({
   quality: f.quality.value, max_height: f.max_height.disabled ? '' : f.max_height.value, folder: f.folder.value.trim(),
-  ...(f.interval_min && { interval_min: f.interval_min.value, kinds: [...f.querySelectorAll('[name=kind]:checked')].map(x => x.value).join(',') }),
+  ...(f.interval_min && { interval_min: f.interval_min.value, kinds: [...f.querySelectorAll('[name=kind]:checked')].map(x => x.value).join(','),
+    title_inc: f.title_inc.value.trim(), title_exc: f.title_exc.value.trim(), min_min: f.min_min.value.trim() }),
 });
-const tags = s => [s.quality && qName(s.quality), s.quality !== 'original' && RES.find(([k]) => k === s.max_height)?.[1], s.folder && '경로: ' + s.folder]
+const tags = s => [s.quality && qName(s.quality), s.quality !== 'original' && RES.find(([k]) => k === s.max_height)?.[1], s.folder && '경로: ' + s.folder,
+  (s.title_inc || s.title_exc || s.min_min) && '필터']
   .filter(Boolean).map(t => `<span class="tag">${esc(t)}</span>`).join('') || '<span class="tag">설정 기본값</span>';
 const kindTags = s => (s.kinds || 'videos').split(',').map(k => `<span class="tag">${PLAT[platOf(s.url)].kinds[k] || KINDS[k]}</span>`).join('');
 
@@ -999,11 +1014,22 @@ function pick(s, clicked = true) {
     <button class="sm" onclick="confirm('구독 삭제? (받은 파일은 유지)') && act('/api/subs/${s.id}','DELETE')">삭제</button>`;
   if (!clicked) return;  // 자동 새로고침 때는 입력 중인 설정 폼을 건드리지 않음
   const f = document.getElementById(`${p}-subform`), kinds = (s.kinds || 'videos').split(',');
-  for (const k of ['quality', 'max_height', 'folder', 'interval_min']) f[k].value = s[k] || '';
+  for (const k of ['quality', 'max_height', 'folder', 'interval_min', 'title_inc', 'title_exc', 'min_min']) f[k].value = s[k] || '';
   f.querySelectorAll('[name=kind]').forEach(x => x.checked = kinds.includes(x.value));
   f.sync(); preview(f);
   document.querySelectorAll(`#${p}-subs .sub`).forEach(x => x.classList.remove('on'));
   loadJobs(document.getElementById(`${p}-subvids`), '?sub=' + s.id);
+  api(`/api/subs/${s.id}/pattern`).then(pt => document.getElementById(`${p}-subpat`).innerHTML = patternHTML(pt)).catch(() => {});
+}
+
+// 방송 시간 패턴: 생방송 녹화 시작 시각 요일 × 시간 (진할수록 자주)
+function patternHTML(pt) {
+  if (!pt.n) return '';
+  const max = Math.max(...pt.grid.flat());
+  return `<div class="pat"><div class="mute">방송 시간 패턴 <span>(${pt.n})</span></div><div class="patgrid">
+    <span></span>${[...Array(24)].map((_, h) => `<span class="mute">${h % 6 ? '' : h}</span>`).join('')}
+    ${(LANG === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['월', '화', '수', '목', '금', '토', '일']).map((d, i) => `<span class="mute">${d}</span>` + pt.grid[i].map((n, h) =>
+      `<i title="${d} ${h}:00 · ${n}" style="opacity:${n ? 0.25 + 0.75 * n / max : 0.06}"></i>`).join('')).join('')}</div></div>`;
 }
 
 async function saveSub(e) {
@@ -1047,6 +1073,7 @@ async function loadStatus() {
       return ['디스크', `${size(d.free)} 남음 <span class="mute">/ ${size(d.total)} · ${esc(d.path.replace(/^\/host/, ''))}</span>${d.low ? ' <span class="err">공간 부족 · 새 다운로드 멈춤</span>' : ''}${meter(d.low ? 100 : used * 100)}`];
     }),
     ['실행 환경', esc(st.env || '-')],
+    ...(st.usage?.length ? [['채널별 용량', st.usage.map(u => `<div class="urow"><span translate="no">${esc(u.name)}</span><span class="mute">${size(u.size)} · ${u.n}개</span></div>${meter(u.size / st.usage[0].size * 100)}`).join('')]] : []),
     ['하드웨어 가속', `${PLATFORMS.map(p => `${PLAT[p].name} <b>${esc(st.hw_use[p])}</b>`).join(' · ')}${why.length ? det('hw', '하드웨어 가속 안 되는 이유', `<div class="mute">${why.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div>`) : ''}`],
     ['로그인', `YouTube ${st.cookies.youtube ? dot('') + '됨' : dot('warn') + '안 됨'} · 치지직 ${st.cookies.chzzk ? dot('') + '됨' : dot('warn') + '안 됨'}`],
     ['동시 개수', `유튜브 ${st.concurrency} · 치지직 ${st.chzzk_concurrency} <span class="mute">(생방송 ${st.live_concurrency} · ${st.chzzk_live_concurrency})</span>`],

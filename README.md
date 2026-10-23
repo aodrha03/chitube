@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.0.3-ff0033" alt="v1.0.3"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.1.0-ff0033" alt="v1.1.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
@@ -106,13 +106,15 @@ docker compose up -d --build
 ### 🔴 생방송 녹화
 - 구독한 채널이 방송을 켜면 **10초 안에** 녹화 시작
 - 녹화가 끊기면 **몇 초 안에 이어서** 녹화하고, 끊긴 시각 · 빠진 시간을 기록
-- 나뉜 녹화 파일은 **버튼 하나로 합치기** (형식이 다르면 다시 압축해서 합침)
+- 방송이 끝나면 나뉜 녹화 파일을 **자동으로 한 파일로** (버튼으로도, 형식이 다르면 다시 압축해서 합침)
+- 녹화 썸네일이 없으면 녹화 장면으로 만들어 둠 · 구독 채널의 **방송 시간 패턴**(요일 × 시간)
 - 녹화 중에도 **미리보기** — 최근 10초를 저장되는 화질 그대로 재생
 - 녹화한 방송은 나중에 올라오는 **다시보기를 또 받지 않음**
 
 ### 📺 Plex · Jellyfin 에 바로
 - 채널 = 쇼, 업로드 연도 = 시즌, 날짜 + 순번 = 에피소드
 - 영상마다 **썸네일 · 자막(.srt) · nfo** 를 함께 저장, 채널 포스터까지
+- 유튜브 설명란 타임스탬프를 **챕터**로 넣어 플레이어에서 구간 이동 (선택: SponsorBlock 광고 구간을 챕터로 **표시만**)
 
 ```
 YouTube/채널명/Season 2026/채널명 - s2026e101801 - 2026-10-18 - 제목 [영상ID].mp4
@@ -125,7 +127,8 @@ YouTube/채널명/Season 2026/채널명 - s2026e101801 - 2026-10-18 - 제목 [�
 - **원본이 지워져도 받은 영상은 그대로** — 다시 받기에 실패해도 기존 파일 보존
 
 ### 🧰 편의
-- 제목 · 채널 **검색**, 7가지 **정렬**, 여러 개 골라 한 번에 처리
+- 구독 **필터** — 제목 포함 · 제외 단어, 최소 길이
+- 제목 · 채널 **검색**, 7가지 **정렬**, 여러 개 골라 한 번에 처리, 상태 화면의 **채널별 용량**
 - **설정 · 구독 백업 / 복원** — 서버를 옮길 때 파일 하나로
 - 화면 언어 **한국어 / English**
 - 프로그램(yt-dlp) 업데이트를 웹 화면에서 버튼 하나로
