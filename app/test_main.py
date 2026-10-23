@@ -458,4 +458,24 @@ main.os.replace = lambda a, b: (_ for _ in ()).throw(PermissionError("locked"));
 real_out, main.OUT = main.OUT, kd
 assert main.keep_partial("chzzk-live-556", {"folder": ""}) == pf and os.path.exists(pf)
 main.os.replace, main.time.sleep, main.OUT = real_rep, real_sleep, real_out
+# 실행 환경 구분 (윈도우 · 맥 · 시놀로지 · 리눅스) → 하드웨어 가속 안 되는 이유를 환경에 맞게
+def env_of(kernel, *paths, osrel=None):
+    d = tempfile.mkdtemp(); pv = os.path.join(d, "version"); open(pv, "w").write(kernel)
+    h = os.path.join(d, "host")
+    for p in paths:
+        os.makedirs(os.path.join(h, os.path.dirname(p)), exist_ok=True)
+        if not p.endswith("/"):  # 'Users/' 같은 폴더는 위에서 만들어짐, 나머지는 빈 파일
+            open(os.path.join(h, p), "w").close()
+    if osrel:
+        os.makedirs(os.path.join(h, "etc"), exist_ok=True); open(os.path.join(h, "etc/os-release"), "w").write(osrel)
+    real, main.HOST = main.HOST, h
+    try:
+        return main.host_env(pv)
+    finally:
+        main.HOST = real
+assert env_of("Linux version 5.15.167.4-microsoft-standard-WSL2")[0] == "windows"
+assert env_of("Linux version 6.8.0-117-generic", "Users/")[0] == "mac"
+assert env_of("Linux version 4.4.302+", "etc/synoinfo.conf")[0] == "synology"
+assert env_of("Linux version 6.1.0-18-amd64", osrel='PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\n') == ("linux", "리눅스 · Debian GNU/Linux 12 (bookworm)")
+assert all(set(v) == {"vaapi", "nvenc"} for v in main.NO_HW_WHY.values())
 print("queue page ok")

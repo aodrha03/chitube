@@ -163,7 +163,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.0.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.0.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -443,16 +443,47 @@ def show_dir(video_path):
     return os.path.dirname(d)
 
 
+def host_env(proc="/proc/version"):
+    """실행 환경 → (종류, 화면에 보일 이름). 컨테이너 안에서 서버 전체(/host)와 커널 정보로 구분
+    (윈도우 Docker Desktop 은 WSL2 커널, 맥은 리눅스 가상 머신 안에 맥의 /Users 가 보임, 시놀로지는 전용 설정 파일)"""
+    try:
+        kernel = open(proc).read().lower()
+    except OSError:
+        kernel = ""
+    if "microsoft" in kernel:
+        return "windows", "윈도우 (Docker Desktop)"
+    if os.path.isdir(os.path.join(HOST, "Users")):
+        return "mac", "맥 (Docker 가상 머신)"
+    if any(os.path.exists(os.path.join(HOST, f)) for f in ("etc/synoinfo.conf", "etc.defaults/VERSION")):
+        return "synology", "시놀로지 DSM"
+    try:
+        name = re.search(r'PRETTY_NAME="?([^"\n]+)', open(os.path.join(HOST, "etc/os-release")).read()).group(1)
+    except (OSError, AttributeError):
+        name = ""
+    return "linux", f"리눅스 · {name}" if name else "리눅스"
+
+
+# 하드웨어 가속이 안 될 때 환경별 이유 (장치가 컨테이너에 안 보일 때). 리눅스는 서버 설정으로 고칠 수 있어 방법까지
+NO_HW_WHY = {
+    "windows": {"vaapi": "윈도우 Docker Desktop 은 인텔 · AMD 내장 그래픽을 컨테이너에 연결하지 못합니다 → CPU 로 압축",
+                "nvenc": "윈도우 Docker Desktop 에서는 엔비디아 그래픽카드 압축을 지원하지 않습니다 → CPU 로 압축 (느리면 화질을 '원본 그대로')"},
+    "mac": {"vaapi": "맥은 Docker 가 가상 머신 안에서 돌아가 그래픽(애플 메탈)을 쓸 수 없습니다 → CPU 로 압축",
+            "nvenc": "맥에는 엔비디아 그래픽카드가 없습니다 → CPU 로 압축 (느리면 화질을 '원본 그대로')"},
+    "synology": {"vaapi": "이 시놀로지 모델에는 인텔 그래픽(퀵싱크)이 없습니다 (ARM · AMD 모델) → CPU 로 압축",
+                 "nvenc": "시놀로지 Container Manager 는 엔비디아 그래픽카드를 지원하지 않습니다 → CPU 로 압축"},
+    "linux": {"vaapi": f"{VAAPI_DEV} 없음 → 서버에 인텔 내장 그래픽이 없습니다 (있으면 자동 연결) → CPU 로 압축",
+              "nvenc": "GPU 가 컨테이너에 연결 안 됨 → 서버에 NVIDIA 드라이버 + NVIDIA Container Toolkit 설치, "
+                       "기본 런타임으로 설정: sudo nvidia-ctk runtime configure --runtime=docker --set-as-default → 도커 재시작"},
+}
+
+
 def detect_hw():
     """하드웨어 인코더를 작은 테스트 영상으로 실제 인코딩해 보고 되는 것만 기록 (드라이버/장치 없으면 실패 → CPU).
     인텔 퀵싱크는 VAAPI 로 사용 (데비안 ffmpeg 에 qsv 인코더가 없음, 같은 하드웨어)."""
+    env = STATE.setdefault("env", host_env())[0]
     for hw, encs in HW_ENC.items():
-        if hw == "vaapi" and not os.path.exists(VAAPI_DEV):
-            HW_WHY[hw] = f"{VAAPI_DEV} 없음 (서버에 인텔 내장 그래픽이 없음, 또는 맥·윈도우 Docker Desktop)"
-            continue
-        if hw == "nvenc" and not os.path.exists("/dev/nvidiactl"):  # GPU 가 컨테이너에 안 붙음
-            HW_WHY[hw] = ("GPU 가 컨테이너에 연결 안 됨 → 서버에 NVIDIA 드라이버 + NVIDIA Container Toolkit 설치, "
-                          "기본 런타임으로 설정: sudo nvidia-ctk runtime configure --runtime=docker --set-as-default → 도커 재시작")
+        if (hw == "vaapi" and not os.path.exists(VAAPI_DEV)) or (hw == "nvenc" and not os.path.exists("/dev/nvidiactl")):
+            HW_WHY[hw] = NO_HW_WHY[env][hw]  # 장치가 컨테이너에 안 보임 → 환경에 맞는 이유
             continue
         for codec, enc in encs.items():
             pre, vf = (["-vaapi_device", VAAPI_DEV], ["-vf", "format=nv12,hwupload"]) if hw == "vaapi" else ([], [])
@@ -933,7 +964,7 @@ def probe_duration(path):
 
 def stall_check(jid, size, st):
     """생방송 녹화가 멈췄는지(파일이 STALL_SEC 동안 안 커짐) 보고, 멈췄으면 ffmpeg 를 끝내 지금까지 녹화분을 저장하고
-    새 파일로 이어서 녹화되게 (continue_live). 예: 윈도우 탐색기로 녹화 중인 파일을 복사하면 그동안 파일이 잠겨 ffmpeg 가 멈춤.
+    새 파일로 이어서 녹화되게 (continue_live). 예: 녹화 중인 파일을 복사 · 이동하면(OS · Docker 폴더 연결 방식에 따라) ffmpeg 가 멈춤.
     먼저 'q'(정상 종료), 그래도 30초 안에 안 끝나면(쓰기에서 멈춰 'q' 를 못 읽음) 강제 종료"""
     now = time.time()
     if size > st.get("size", -1):
@@ -1872,6 +1903,7 @@ def status():
         "hw_use": {p: "압축 안 함" if (r := resolve(s, {k: s[f"{p}_{k}"] for k in OVERRIDES}))["codec"] == "none"
                    else f"{r['codec'].upper()} · {HW_NAME[encoder_for(r)]}" for p in PLATFORMS},
         "hw_why": {HW_NAME[h]: why for h, why in HW_WHY.items()}, "load": load(),
+        "env": STATE.setdefault("env", host_env())[1],  # 실행 환경 (윈도우 · 맥 · 시놀로지 · 리눅스)
         # 확인(숨기기)하지 않은 오류만. '다시 받기 실패 → 기존 파일 보존' 처럼 완료인데 남은 안내도 포함
         "errors": q(f"SELECT id, title, error FROM jobs WHERE {NEW_ERR} ORDER BY id DESC LIMIT 10"),
         "errors_new": q(f"SELECT COUNT(*) n FROM jobs WHERE {NEW_ERR}")[0]["n"],

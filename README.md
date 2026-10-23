@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.0.1-ff0033" alt="v1.0.1"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.0.2-ff0033" alt="v1.0.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
@@ -188,6 +188,12 @@ flowchart LR
 <summary><b>멤버십 · 성인 인증 영상도 받을 수 있나요?</b></summary>
 
 본인 계정으로 로그인하면 됩니다. 웹 화면의 🔑 로그인 → 브라우저 열기 → 평소처럼 로그인. 볼 수 있는 권한이 있는 영상만 받을 수 있습니다. → [로그인](docs/MANUAL.md#5-로그인-멤버십--성인-인증-영상)
+</details>
+
+<details>
+<summary><b>녹화 중인 파일을 복사하거나 옮겨도 되나요?</b></summary>
+
+**아니요, 어떤 OS 에서든 받는 중 · 녹화 중인 파일은 복사하거나 옮기지 마세요.** 복사 · 이동하는 방법(탐색기 · Finder · 네트워크 공유)과 Docker 가 폴더를 연결하는 방식에 따라 녹화가 멈추거나, 끝날 때 파일을 찾지 못해 정리 · 압축이 안 될 수 있습니다. 녹화 중 확인은 영상 정보 창의 **▶ 지금 받는 부분 확인**(미리보기)을 쓰고, 복사 · 이동은 카드가 **완료**가 된 뒤에 하세요. (녹화가 멈추면 90초 뒤 자동으로 그때까지 녹화분을 저장하고 새 파일로 이어서 녹화하지만, 멈춘 동안은 빠집니다)
 </details>
 
 <details>

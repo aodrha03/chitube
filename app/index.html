@@ -487,6 +487,14 @@ const EN = {
   '경로': 'Path', '오늘': 'today', '자막': 'Subtitles', '최고': 'Best', '원본': 'Original', '화질': 'Quality', '녹화': 'Recording', '시간': 'Time', '없음': 'None', '지점': 'mark', '확인': 'Check',
   '채널': 'Channel', '주소': 'URL', '삭제': 'Delete', '남음': 'left', '저장': 'Save', '처리': 'processed', '공통': 'Common', '링크': 'Link', '압축': 'Compression', '시작': 'start', '조각': 'parts',
   '코어': 'cores', '오류': 'Errors', '남은': 'left', '상태': 'Status', '끄기': 'Off', '끔)': 'off)', '닫기': 'Close', '관리': 'Manage', '길이': 'Length', '완료': 'Done', '옵션': 'Options', '선택': 'Select',
+  '실행 환경': 'Environment', '윈도우 (Docker Desktop)': 'Windows (Docker Desktop)', '맥 (Docker 가상 머신)': 'Mac (Docker VM)', '시놀로지 DSM': 'Synology DSM', '리눅스': 'Linux',
+  '윈도우 Docker Desktop 은 인텔 · AMD 내장 그래픽을 컨테이너에 연결하지 못합니다 → CPU 로 압축': 'Windows Docker Desktop cannot attach Intel/AMD integrated graphics to containers → encoding on CPU',
+  "윈도우 Docker Desktop 에서는 엔비디아 그래픽카드 압축을 지원하지 않습니다 → CPU 로 압축 (느리면 화질을 '원본 그대로')": "NVIDIA encoding is not supported on Windows Docker Desktop → encoding on CPU (if slow, set quality to 'Original')",
+  '맥은 Docker 가 가상 머신 안에서 돌아가 그래픽(애플 메탈)을 쓸 수 없습니다 → CPU 로 압축': 'On Mac, Docker runs in a VM and cannot use the GPU (Apple Metal) → encoding on CPU',
+  "맥에는 엔비디아 그래픽카드가 없습니다 → CPU 로 압축 (느리면 화질을 '원본 그대로')": "Macs have no NVIDIA GPU → encoding on CPU (if slow, set quality to 'Original')",
+  '이 시놀로지 모델에는 인텔 그래픽(퀵싱크)이 없습니다 (ARM · AMD 모델) → CPU 로 압축': 'This Synology model has no Intel graphics (Quick Sync) (ARM/AMD model) → encoding on CPU',
+  '시놀로지 Container Manager 는 엔비디아 그래픽카드를 지원하지 않습니다 → CPU 로 압축': 'Synology Container Manager does not support NVIDIA GPUs → encoding on CPU',
+  '서버에 인텔 내장 그래픽이 없습니다 (있으면 자동 연결) → CPU 로 압축': 'the server has no Intel integrated graphics (attached automatically if present) → encoding on CPU',
   '엔비디아': 'NVIDIA', '기본 런타임으로 설정:': 'set it as the default runtime:', '→ 도커 재시작': '→ restart Docker', '그래픽카드': 'GPU',
   '기타': 'Other', '최신': 'latest', '다운로드': 'Download', '개 중': ' of', '까지)': 'until)', '30분': '30 min', '1시간': '1 h', '3시간': '3 h', '6시간': '6 h', '안 됨': 'no', '곧': 'soon',
 };
@@ -1035,6 +1043,7 @@ async function loadStatus() {
       const used = 1 - d.free / d.total;
       return ['디스크', `${size(d.free)} 남음 <span class="mute">/ ${size(d.total)} · ${esc(d.path.replace(/^\/host/, ''))}</span>${d.low ? ' <span class="err">공간 부족 · 새 다운로드 멈춤</span>' : ''}${meter(d.low ? 100 : used * 100)}`];
     }),
+    ['실행 환경', esc(st.env || '-')],
     ['하드웨어 가속', `${PLATFORMS.map(p => `${PLAT[p].name} <b>${esc(st.hw_use[p])}</b>`).join(' · ')}${why.length ? det('hw', '하드웨어 가속 안 되는 이유', `<div class="mute">${why.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div>`) : ''}`],
     ['로그인', `YouTube ${st.cookies.youtube ? dot('') + '됨' : dot('warn') + '안 됨'} · 치지직 ${st.cookies.chzzk ? dot('') + '됨' : dot('warn') + '안 됨'}`],
     ['동시 개수', `유튜브 ${st.concurrency} · 치지직 ${st.chzzk_concurrency} <span class="mute">(생방송 ${st.live_concurrency} · ${st.chzzk_live_concurrency})</span>`],
