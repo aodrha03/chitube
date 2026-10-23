@@ -383,7 +383,7 @@ const EN = {
   '끄기 (영상 정보 창에서 직접)': 'Off (merge manually in the video info window)', '유튜브 광고 구간 챕터 표시': 'Mark YouTube sponsor segments as chapters',
   '켜기 (SponsorBlock · 표시만, 자르지 않음)': 'On (SponsorBlock · mark only, never cut)', '제목에 포함': 'Title includes', '쉼표 구분 · 하나라도': 'comma-separated · any',
   '제목에서 제외': 'Title excludes', '최소 길이 (분)': 'Min length (min)', '제한 없음': 'No limit', '예) 노래, 커버': 'e.g. song, cover', '예) 예고, 쇼츠': 'e.g. trailer, shorts',
-  '방송 시간 패턴': 'Stream time pattern', '채널별 용량': 'Usage by channel', '필터': 'Filter', '설정 탭 기본값': 'Settings tab default', '설정 기본값': 'Default from settings', '설정 따름': 'Follows settings',
+  '방송 시간 패턴': 'Stream time pattern', '채널별 용량': 'Usage by channel', '많이 차지하는 채널 보기': 'Show top channels', '필터': 'Filter', '설정 탭 기본값': 'Settings tab default', '설정 기본값': 'Default from settings', '설정 따름': 'Follows settings',
   '이 채널 설정 저장': 'Save channel settings', '대기 중인 영상부터 적용': 'Applies to queued videos too', '구독할 때만 적용': 'Applies only when subscribing',
   '하루 한 번': 'Once a day', '12시간마다': 'Every 12 h', '6시간마다': 'Every 6 h', '3시간마다': 'Every 3 h', '1시간마다': 'Hourly', '30분마다': 'Every 30 min', '분마다': ' min interval',
   '상대 경로 또는 서버 절대 경로 (/로 시작)': 'Relative path or absolute server path (starting with /)', '또는 서버 절대 경로 /volume1/video/': ' or absolute server path /volume1/video/',
@@ -1073,7 +1073,8 @@ async function loadStatus() {
       return ['디스크', `${size(d.free)} 남음 <span class="mute">/ ${size(d.total)} · ${esc(d.path.replace(/^\/host/, ''))}</span>${d.low ? ' <span class="err">공간 부족 · 새 다운로드 멈춤</span>' : ''}${meter(d.low ? 100 : used * 100)}`];
     }),
     ['실행 환경', esc(st.env || '-')],
-    ...(st.usage?.length ? [['채널별 용량', st.usage.map(u => `<div class="urow"><span translate="no">${esc(u.name)}</span><span class="mute">${size(u.size)} · ${u.n}개</span></div>${meter(u.size / st.usage[0].size * 100)}`).join('')]] : []),
+    ...(st.usage?.length ? [['채널별 용량', det('usage', '많이 차지하는 채널 보기',  // 기본은 접어 둠
+      st.usage.map(u => `<div class="urow"><span translate="no">${esc(u.name)}</span><span class="mute">${size(u.size)} · ${u.n}개</span></div>${meter(u.size / st.usage[0].size * 100)}`).join(''))]] : []),
     ['하드웨어 가속', `${PLATFORMS.map(p => `${PLAT[p].name} <b>${esc(st.hw_use[p])}</b>`).join(' · ')}${why.length ? det('hw', '하드웨어 가속 안 되는 이유', `<div class="mute">${why.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div>`) : ''}`],
     ['로그인', `YouTube ${st.cookies.youtube ? dot('') + '됨' : dot('warn') + '안 됨'} · 치지직 ${st.cookies.chzzk ? dot('') + '됨' : dot('warn') + '안 됨'}`],
     ['동시 개수', `유튜브 ${st.concurrency} · 치지직 ${st.chzzk_concurrency} <span class="mute">(생방송 ${st.live_concurrency} · ${st.chzzk_live_concurrency})</span>`],
