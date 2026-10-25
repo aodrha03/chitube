@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.1.1-ff0033" alt="v1.1.1"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.1.2-ff0033" alt="v1.1.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
@@ -109,7 +109,7 @@ docker compose up -d --build
 - 방송이 끝나면 나뉜 녹화 파일을 **자동으로 한 파일로** (버튼으로도, 형식이 다르면 다시 압축해서 합침)
 - 녹화 썸네일이 없으면 녹화 장면으로 만들어 둠 · 구독 채널의 **방송 시간 패턴**(요일 × 시간)
 - 녹화 중에도 **미리보기** — 최근 10초를 저장되는 화질 그대로 재생
-- 녹화한 방송은 나중에 올라오는 **다시보기를 또 받지 않음**
+- 녹화한 방송은 나중에 올라오는 **다시보기를 또 받지 않음** (녹화가 일부만 담았으면 다시보기도 받음)
 
 ### 📺 Plex · Jellyfin 에 바로
 - 채널 = 쇼, 업로드 연도 = 시즌, 날짜 + 순번 = 에피소드

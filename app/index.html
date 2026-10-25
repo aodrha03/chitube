@@ -487,7 +487,7 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '일시정지됨': 'Paused', '일시정지 (': 'Paused (', '일시정지': 'Pause', '재개': 'Resume', '조회 중...': 'Looking up...',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '일시정지됨': 'Paused', '일시정지 (': 'Paused (', '일시정지': 'Pause', '재개': 'Resume', '조회 중...': 'Looking up...',
   '확인 중...': 'Checking...', '저장 중...': 'Saving...', '점검 중': 'Auditing', '진행 중': 'In progress', '오류·취소': 'Errors', '다시 시도': 'Retry', '봇 감지': 'Bot detection', '봇 확인': 'bot check',
   '새 영상': 'new videos', '다시보기': 'Replays', '생방송': 'Live', '동영상': 'Videos', '숏츠': 'Shorts', '라이브': 'Live', '압축 중': 'Compressing', '조회수': 'Views', '업로드': 'Uploaded',
   '메모리': 'Memory', '디스크': 'Disk', '시스템': 'System', '재시도': 'Retried', '마지막': 'Last', '페이지': 'page', '해상도': 'Resolution', '로그인': 'Login', '유튜브': 'YouTube',
@@ -944,6 +944,26 @@ const ERR_KO = [[/not currently live/i, '방송 중이 아님 (방송이 끝나 
 const koErr = e => { const m = ERR_KO.find(([re]) => re.test(e || '')); return m ? m[1] : (e || '').replace(/^ERROR:\s*(\[[^\]]+\]\s*)?/, ''); };
 // 내용이 그대로면 다시 그리지 않음 (2초마다 목록을 새로 그리면 이미지가 다시 불려 깜빡임)
 function setHTML(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
+// 목록 카드: 바뀐 카드만 새로 그림 (예전엔 진행률 하나만 바뀌어도 60개를 통째로 다시 그려 스크롤·클릭이 버벅였음)
+function setCards(el, items) {  // items = [[키, html], …]
+  if (!items.length) return setHTML(el, '<div class="mute">없음</div>');
+  const old = new Map([...el.children].filter(c => c._k != null).map(c => [c._k, c]));
+  if (old.size !== el.children.length) el.replaceChildren();  // '없음' 등 다른 내용이었으면 비우고 시작
+  const t = document.createElement('template');
+  items.forEach(([k, h], i) => {
+    let c = old.get(k);
+    if (!c || c._html !== h) {
+      t.innerHTML = h.trim();
+      const n = t.content.firstElementChild;
+      n._k = k; n._html = h;
+      if (c) c.replaceWith(n);
+      c = n;
+    }
+    if (el.children[i] !== c) el.insertBefore(c, el.children[i] || null);
+  });
+  while (el.children.length > items.length) el.lastElementChild.remove();
+  el._html = null;  // setHTML 과 섞여도 다음에 다시 그리게
+}
 const card = (j, p, pos = 0) => {
   const active = ['downloading', 'recording', 'compressing'].includes(j.status), sel = p && VIEW[p].sel;
   return `
@@ -975,11 +995,11 @@ async function loadJobs(el, q = '', p = null) {  // p 가 있으면 플랫폼 �
   }
   // 대기 필터는 받을 순서대로 → "N번째"
   const pos = i => p && VIEW[p].status === 'queued' ? (VIEW[p].page - 1) * PER + i + 1 : 0;
-  setHTML(el, jobs.map((j, i) => card(j, p, pos(i))).join('') || '<div class="mute">없음</div>');
+  setCards(el, jobs.map((j, i) => [j.id, card(j, p, pos(i))]));
 }
 
 const schedText = s => !s.enabled ? '일시정지됨' :
-  `마지막 확인 ${s.last_checked ? rel(s.last_checked) : '없음'}${s.last_checked ? ` (새 영상 ${s.last_found ?? 0}개)` : ''} · 다음 확인 ${s.next_check * 1000 <= Date.now() ? '1분 내' : `${clock(s.next_check)} (${rel(s.next_check)})`}`;
+  `마지막 확인 ${s.last_checked ? rel(s.last_checked) : '없음'}${s.last_checked ? ` (새 영상 ${s.last_found ?? 0}개)` : ''} · 다음 확인 ${s.next_check * 1000 <= Date.now() ? '곧' : `${clock(s.next_check)} (${rel(s.next_check)})`}`;
 
 async function loadSubs(p) {
   const subs = await api('/api/subs?platform=' + p);
@@ -1085,7 +1105,7 @@ async function loadStatus() {
     .sort((a, b) => (b.enabled - a.enabled) || a.next_check - b.next_check).map(s => `
     <div class="srow ${s.enabled ? '' : 'off'}">
       <div class="row"><b translate="no">${esc(s.name)}</b><span>${kindTags(s)}<button class="sm" onclick="act('/api/subs/${s.id}/check','POST')">지금 확인</button></span></div>
-      <div class="mute">${!s.enabled ? '일시정지됨' : `다음 ${s.next_check * 1000 <= Date.now() ? '1분 내' : `${clock(s.next_check)} (${rel(s.next_check)})`}`}
+      <div class="mute">${!s.enabled ? '일시정지됨' : `다음 ${s.next_check * 1000 <= Date.now() ? '곧' : `${clock(s.next_check)} (${rel(s.next_check)})`}`}
         · ${ivName(s.interval_min || SET.check_interval_min)}${s.last_checked ? ` · 마지막 ${clock(s.last_checked)} 새 영상 ${s.last_found ?? 0}개` : ''}
         ${p === 'chzzk' && s.enabled && (s.kinds || '').includes('streams') ? ' · <b style="color:var(--fg)">생방송 10초마다 감시 중</b>' : ''}</div>
       ${s.last_error ? `<div class="err">${esc(koErr(s.last_error).slice(0, 100))}</div>` : ''}
@@ -1262,7 +1282,11 @@ async function hideErrors(ids) {  // 오류 확인 → 카드·상태 화면에�
   refresh();
 }
 async function act(u, method) {  // 실패하면 이유를 알림 (예전엔 아무 표시 없이 무시됨)
+  // 누른 버튼에 바로 표시 (서버가 확인을 시작하기 전까지 아무 반응이 없어 늦게 눌린 느낌이었음)
+  const b = document.activeElement?.tagName === 'BUTTON' ? document.activeElement : null, label = b?.textContent;
+  if (b) { b.disabled = true; b.textContent = '✓ 시작'; }
   try { await api(u, { method }); } catch (e) { alert(e.message); }
+  setTimeout(() => { if (b?.isConnected) { b.disabled = false; b.textContent = label; } }, 1500);
   refresh();
 }
 
@@ -1299,7 +1323,15 @@ async function save(e) {
 document.querySelectorAll('select[data-n]').forEach(sel =>  // 1~N개 선택지
   sel.innerHTML = Array.from({ length: +sel.dataset.n }, (_, i) => `<option value="${i + 1}">${i + 1}개</option>`).join(''));
 loadSettings().then(loadLogin); refresh();  // 로그인 배지는 설정(갱신 주기)을 읽은 뒤에 그려야 "다시 로그인 권장"이 처음부터 보임
-setInterval(() => refresh().catch(() => document.getElementById('wait').textContent = '서버 연결 끊김 - 재연결 시도 중...'), 2000);
+// 2초마다 새로고침. 앞 요청이 아직이면 건너뜀 (예전엔 느릴 때 요청이 겹겹이 쌓여 화면 전체가 굼떠졌음), 안 보이는 탭에선 쉼
+let BUSY = false;
+async function tick() {
+  if (BUSY || document.hidden) return;
+  BUSY = true;
+  try { await refresh(); } catch { document.getElementById('wait').textContent = '서버 연결 끊김 - 재연결 시도 중...'; } finally { BUSY = false; }
+}
+setInterval(tick, 2000);
+document.addEventListener('visibilitychange', tick);
 // AV1 은 하드웨어 AV1 인코더(인텔 퀵싱크 Arc 이상 / 엔비디아 RTX 40 이상)가 감지될 때만 선택지에 보임
 // (이미 AV1 로 골라 둔 곳은 사라지지 않게 그대로 둠)
 function showAv1(st) {

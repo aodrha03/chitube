@@ -245,7 +245,7 @@ main.continue_live(main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-8'")[0]
 assert not main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-8-p2'")
 assert main.ADULT_RE.search("ERROR: [chzzk:video] 1: Failed to download MPD manifest: HTTP Error 401: Unauthorized")
 # 생방송 녹화로 받은 방송의 다시보기는 건너뜀 (liveOpenDate == 녹화 때 openDate)
-main.q("UPDATE jobs SET live_open='2026-10-21 15:48:03' WHERE video_id='chzzk-live-7'")
+main.q("UPDATE jobs SET live_open='2026-10-21 15:48:03', status='done' WHERE video_id='chzzk-live-7'")  # 완료된 녹화만
 real_api, main.chzzk_api = main.chzzk_api, lambda path: {"liveOpenDate": "2026-10-21 15:48:03" if path.endswith("/901") else "2026-10-20 10:00:00"}
 assert main.recorded_replay("a" * 32, {"videoNo": 901, "videoType": "REPLAY"})
 assert not main.recorded_replay("a" * 32, {"videoNo": 902, "videoType": "REPLAY"})
@@ -547,4 +547,45 @@ td = tempfile.mkdtemp()
 main.subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10", "-t", "2", f"{td}/rec.mp4"], check=True)
 main.frame_thumb(f"{td}/rec.mp4", 2)
 assert os.path.getsize(f"{td}/rec.jpg") > 0
+# 치지직 다시보기 미리보기: aria2c 가 앞·뒤를 동시에 받는 중 → 받아 둔 가장 뒤쪽 구간에서 (파일 끝 빈칸 말고)
+def aria2_file(bits, piece=1 << 20):
+    total = len(bits) * piece
+    bm = bytes(int("".join(map(str, (bits + [0] * 7)[i:i + 8])), 2) for i in range(0, len(bits), 8))
+    b = b"\x00\x01" + b"\x00" * 4 + (0).to_bytes(4, "big") + piece.to_bytes(4, "big") + total.to_bytes(8, "big") + b"\x00" * 8 + len(bm).to_bytes(4, "big") + bm
+    f = os.path.join(tempfile.mkdtemp(), "v.mp4.aria2")
+    open(f, "wb").write(b)
+    return f
+af = aria2_file([1] * 30 + [0] * 40 + [1] * 20 + [0] * 10)  # 100MB, 100초 → 조각 1개 = 1초
+assert main.aria2_done(af) == (50 << 20, 100 << 20)
+assert main.aria2_seek(af, 100) == 75  # 70~90초 받아 둠 → 끝(90초)에서 15초 전
+assert main.aria2_seek(aria2_file([1] * 30 + [0] * 60 + [1] * 5 + [0] * 5), 100) == 15  # 뒤쪽 5초는 짧아 앞 구간 끝에서
+assert main.aria2_seek(aria2_file([0] * 10), 100) is None
+# 녹화하면서 압축: 방송 해상도가 바뀌어도 출력 크기 · 소리 형식 고정
+_, enc = main.encode_args(main.settings() | {"codec": "h265"}, hw="cpu", ts=True, size=(1920, 1080))
+assert enc[enc.index("-vf") + 1] == "scale=1920:1080,format=yuv420p" and enc[enc.index("-ar") + 1] == "48000"
+_, enc = main.encode_args(main.settings() | {"codec": "h265"}, hw="vaapi", ts=True, size=(1280, 720))
+assert enc[enc.index("-vf") + 1] == "scale=1280:720,format=nv12,hwupload" and enc.count("-vf") == 1
+assert "-vf" not in main.encode_args(main.settings() | {"codec": "h265"})[1] and "-ar" not in main.encode_args(main.settings() | {"codec": "h265"})[1]
+# '지금 확인'은 구독 확인 스레드를 바로 깨움
+main.WAKE.clear(); main.check_now(fsid); assert main.WAKE.is_set()
+main.WAKE.clear(); main.audit_now(); assert main.WAKE.is_set()
+main.STATE.pop("audit_now", None)
+# 방송이 끝나 오류로 멈춘 녹화 → 정상 종료처럼 mp4 정리 (원본 그대로 설정이면 다시 압축 안 함)
+td = tempfile.mkdtemp()
+main.subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10", "-f", "lavfi", "-i", "sine", "-t", "3",
+                     "-c:v", "libx264", "-c:a", "aac", "-f", "mpegts", f"{td}/rec.mp4"], check=True)
+main.q("INSERT INTO jobs(video_id,url,title,opts,live) VALUES('chzzk-live-9077','u','끝난 방송','{}',1)")
+kj = main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-9077'")[0]
+out = main.finish_kept(kj, f"{td}/rec.mp4", main.settings() | {"codec": "none"})
+assert out == f"{td}/rec.mp4" and main.probe_streams(out)[1] > 2 and os.path.exists(f"{td}/rec.jpg")
+assert json.loads(main.q("SELECT meta FROM jobs WHERE id=?", (kj["id"],))[0]["meta"])["size"] == os.path.getsize(out)
+assert b"ftyp" in open(out, "rb").read(16)  # MPEG-TS → mp4
+# 생방송 녹화로 받은 방송: 방송 전체를 담았으면 다시보기 건너뜀, 일부만(늦게 발견 · 끊김) 담았으면 다시보기도 받음
+cz = "c" * 32
+main.q("INSERT INTO jobs(video_id,url,title,opts,live,status,live_open,meta) VALUES('chzzk-live-9088',?,'방송','{}',1,'done','2026-10-20 20:00:00',?)",
+       (f"https://chzzk.naver.com/live/{cz}", json.dumps({"duration": 3000})))
+real_api, main.chzzk_api = main.chzzk_api, lambda path: {"liveOpenDate": "2026-10-20 20:00:00"}
+assert main.recorded_replay(cz, {"videoNo": 501, "videoType": "REPLAY", "duration": 3100})
+assert not main.recorded_replay(cz, {"videoNo": 502, "videoType": "REPLAY", "duration": 7200})
+main.chzzk_api = real_api
 print("queue page ok")

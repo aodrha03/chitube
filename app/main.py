@@ -161,11 +161,12 @@ def outtmpl(ep, per_video, chzzk=False):
 LIVE = {}   # job_id -> 실시간 진행 상태 (DB에 매번 쓰지 않음)
 CANCEL = set()  # 취소 요청된 job_id
 STATE = {"next_at": 0, "paused_until": 0, "pause_reason": ""}
+WAKE = threading.Event()  # "지금 확인" · "지금 점검" → 구독 확인 스레드를 바로 깨움 (예전엔 최대 1분 기다렸다 시작)
 LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에만 (재시작 시 초기화)
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.1.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.1.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -440,16 +441,23 @@ def recorded_replay(cid, v):
     if v.get("videoType") != "REPLAY" or q("SELECT 1 FROM jobs WHERE video_id=?", (no,)):
         return False
     if no not in REPLAY_SEEN:
-        opened = {r["live_open"] for r in q("SELECT DISTINCT live_open FROM jobs WHERE url=? AND live_open IS NOT NULL",
-                                              (f"https://chzzk.naver.com/live/{cid}",))}
-        if not opened:  # 이 채널 녹화가 없으면 상세 조회 안 함 (기억도 안 함 → 나중에 녹화하면 다시 확인)
-            return False
+        live_url = f"https://chzzk.naver.com/live/{cid}"
+        if not q("SELECT 1 FROM jobs WHERE url=? AND live_open IS NOT NULL LIMIT 1", (live_url,)):
+            return False  # 이 채널 녹화가 없으면 상세 조회 안 함 (기억도 안 함 → 나중에 녹화하면 다시 확인)
         try:
-            REPLAY_SEEN[no] = chzzk_api(f"/v3/videos/{no}").get("liveOpenDate") in opened
+            opened = chzzk_api(f"/v3/videos/{no}").get("liveOpenDate")
         except Exception:
             return False
-        if REPLAY_SEEN[no]:
-            log(f"생방송 녹화로 받은 방송이라 다시보기는 건너뜀: {v.get('videoTitle')}")
+        rec = [r for r in q("SELECT filepath, meta FROM jobs WHERE url=? AND live_open=? AND status='done'", (live_url, opened))]
+        if not rec:
+            REPLAY_SEEN[no] = False
+            return False
+        # 녹화가 방송 전체를 담았을 때만 건너뜀. 늦게 발견했거나 끊겨서 빠진 구간이 있으면(다시보기의 90% 미만) 다시보기도 받음
+        got = sum(json.loads(r["meta"] or "{}").get("duration") or (probe_duration(r["filepath"]) if r["filepath"] and os.path.isfile(r["filepath"]) else 0)
+                  for r in rec)
+        REPLAY_SEEN[no] = not v.get("duration") or got >= v["duration"] * 0.9
+        log(f"생방송 녹화로 받은 방송이라 다시보기는 건너뜀: {v.get('videoTitle')}" if REPLAY_SEEN[no] else
+            f"녹화가 방송 일부만 담고 있어 다시보기도 받음 ({int(got // 60)}분 / {v['duration'] // 60}분): {v.get('videoTitle')}")
     return REPLAY_SEEN[no]
 
 
@@ -524,19 +532,22 @@ def encoder_for(s):
     return next((h for h in want if s["codec"] in HW.get(h, ())), "cpu")
 
 
-def ffmpeg_cmd(src, dst, s, vbit=0, tags=None, hw="cpu"):
+def ffmpeg_cmd(src, dst, s, vbit=0, tags=None, hw="cpu", size=None):
     """vbit = 원본 영상 비트레이트(bps). 있으면 '원본 대비 ratio%' 상한을 걸어 용량이 확실히 줄게 함.
-    tags = 파일에 넣을 메타데이터 (원본에 태그가 없는 라이브 녹화본용). hw = cpu | nvenc | vaapi"""
-    pre, enc = encode_args(s, vbit, hw)
+    tags = 파일에 넣을 메타데이터 (원본에 태그가 없는 라이브 녹화본용). hw = cpu | nvenc | vaapi. size = encode_args 참고"""
+    pre, enc = encode_args(s, vbit, hw, size=size)
     return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *pre, "-i", src, "-map", "0:v:0", "-map", "0:a:0?", *enc,
             "-map_metadata", "0", *[a for k, v in (tags or {}).items() if v for a in ("-metadata", f"{k}={v}")],
             "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", dst]
 
 
-def encode_args(s, vbit=0, hw="cpu", ts=False):
+def encode_args(s, vbit=0, hw="cpu", ts=False, size=None):
     """→ (입력 앞에 둘 옵션, 영상·소리 압축 옵션). 다 받은 뒤 압축(ffmpeg_cmd)과 받으면서 압축(run_job) 공용.
-    ts = 생방송 녹화(MPEG-TS 로 씀) — hvc1 태그는 mp4 전용이라 TS 에 넣으면 ffmpeg 가 거부"""
+    ts = 생방송 녹화(MPEG-TS 로 씀) — hvc1 태그는 mp4 전용이라 TS 에 넣으면 ffmpeg 가 거부
+    size = (가로, 세로) 생방송 녹화하면서 압축할 때 출력 크기 고정: 방송 중 해상도·화면 형식이 바뀌면(방송 설정 변경 등)
+    ffmpeg 가 필터를 다시 만들고, 이미 시작한 압축기는 크기가 달라진 화면을 거부해 녹화가 오류로 끝났음 (원본 그대로 녹화는 영향 없음)"""
     pre = []
+    fix = f"scale={size[0]}:{size[1]}" if size and all(size) else ""
     if s["codec"] == "copy":  # 영상은 그대로, 오디오만 다시 인코딩 (라이브 녹화본 mp4 변환용)
         v = ["-c:v", "copy"] + (["-tag:v", "hvc1"] if s.get("src_codec") == "h265" else [])
     else:
@@ -547,7 +558,7 @@ def encode_args(s, vbit=0, hw="cpu", ts=False):
                  "-rc", "vbr", "-cq", str(s["crf"]), "-b:v", "0", *limit]
         elif hw == "vaapi":  # 상한이 있으면 그 비트레이트로, 없으면(라이브) 고정 화질
             pre = ["-vaapi_device", VAAPI_DEV]
-            v = ["-vf", "format=nv12,hwupload", "-c:v", HW_ENC["vaapi"][s["codec"]],
+            v = ["-vf", (fix + "," if fix else "") + "format=nv12,hwupload", "-c:v", HW_ENC["vaapi"][s["codec"]],
                  *(["-rc_mode", "VBR", "-b:v", str(cap), "-maxrate", str(cap)] if cap else
                    # AV1 의 qp 는 0~255 단위 (CRF 0~63 의 약 4배) → 그대로 넣으면 거의 무압축
                    ["-rc_mode", "CQP", "-qp", str(min(int(s["crf"]) * 4, 255) if s["codec"] == "av1" else s["crf"])])]
@@ -559,9 +570,12 @@ def encode_args(s, vbit=0, hw="cpu", ts=False):
             if s["codec"] == "h265" and 2 <= (n := len(os.sched_getaffinity(0))) <= 3:
                 # x265 는 코어가 적으면 스레드 풀을 안 만들어 사실상 싱글로 압축 (실측 2코어: 12.3초 → 8.3초). 코어 많은 PC 는 원래 멀티라 그대로
                 v += ["-x265-params", f"pools={n}:frame-threads=2"]
+        if fix and hw != "vaapi":
+            v += ["-vf", fix + ("" if s["codec"] == "av1" else ",format=yuv420p")]  # AV1 은 -pix_fmt 로 고정됨
         if s["codec"] == "h265" and not ts:
             v += ["-tag:v", "hvc1"]  # Apple/Plex 다이렉트 재생용
-    return pre, [*v, "-c:a", "aac", "-b:a", s["audio_bitrate"]]
+    # 생방송: 소리 형식(샘플레이트·채널)이 중간에 바뀌어도 같은 형식으로 → 소리 압축기가 멈추지 않게
+    return pre, [*v, "-c:a", "aac", "-b:a", s["audio_bitrate"], *(["-ar", "48000", "-ac", "2"] if ts and s["codec"] != "copy" else [])]
 
 
 def episode_code(season_dir, upload_date, vid):
@@ -693,11 +707,13 @@ def compress(src, duration, s, jid, force=False, tags=None):
     # 전체 평균 비트레이트에서 오디오 몫을 빼서 원본 영상 비트레이트 추정
     vbit = max(os.path.getsize(src) * 8 / duration - yt_dlp.utils.parse_bytes(s["audio_bitrate"]), 0) if duration else 0
     hw = "cpu" if s["codec"] == "copy" else encoder_for(s)
-    err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw), duration, jid)
+    # 첫 화면 크기로 고정 (녹화 중간에 해상도가 바뀐 생방송 녹화본도 압축이 멈추지 않게)
+    size = None if s["codec"] == "copy" else next(((w, h) for t, _, w, h in probe_streams(src)[0] if t == "video"), None)
+    err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw, size), duration, jid)
     if err is not None and hw != "cpu" and jid not in CANCEL:  # 드라이버 문제 등 → CPU 로 한 번 더
         log(f"{HW_NAME[hw]} 인코딩 실패 → CPU 로 다시 시도: {err.strip()[-120:]}")
         hw = "cpu"
-        err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw), duration, jid)
+        err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw, size), duration, jid)
     if err is not None:
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -794,7 +810,7 @@ def run_job(job, s):
                 # 고를 포맷만 먼저 확인(다운로드 안 함) → 원본 비트레이트로 '원본 대비 최대 크기' 상한 계산
                 sel = y.process_ie_result(copy.deepcopy(raw), download=False)
                 vbit = (sel.get("vbr") or max((sel.get("tbr") or 0) - (sel.get("abr") or 0), 0)) * 1000
-                pre, enc = encode_args(s, vbit, stream_hw, ts=is_live)
+                pre, enc = encode_args(s, vbit, stream_hw, ts=is_live, size=(sel.get("width"), sel.get("height")) if is_live else None)
                 prog = f"/tmp/progress-{jid}.txt"  # ffmpeg 가 진행 상황을 쓰는 파일 (yt-dlp 는 ffmpeg 진행률을 안 알려줌)
                 y.params.update(external_downloader={"default": "ffmpeg"},  # 영상·소리를 ffmpeg 하나가 같이 읽어 바로 압축
                                 # -extension_picky 는 HLS 전용 옵션 (일반 mp4 주소에 주면 ffmpeg 가 거부)
@@ -938,11 +954,16 @@ def run_job(job, s):
             # 생방송이 끊기면 그때까지 녹화분은 지우지 않고 보존 (몇 시간 녹화를 날리지 않게). 이어서 녹화는 continue_live
             # 보존했으면 '완료'로 (오류로 두면 점검이 다시 받기로 같은 방송을 처음부터 또 녹화함). 끊긴 표시는 cut 으로
             kept = keep_partial(job["video_id"], s) if job["live"] else None
-            if kept:
+            ended = kept and not live_now(job)
+            if ended:  # 방송이 끝나서 끊긴 것 = 정상 종료 (치지직은 방송이 끝나면 재생 목록이 바로 사라져 ffmpeg 가 오류로 끝남)
+                kept = finish_kept(job, kept, s)
+            elif kept:
                 frame_thumb(kept, probe_duration(kept))
-            q("UPDATE jobs SET status=?, error=?, filepath=COALESCE(?, filepath), finished=? WHERE id=?",
-              ("done" if kept else "error", msg[:500], kept, time.time(), jid))
-            log(f"오류: {job['title']} — {msg[:100]}" + (" (녹화분 보존)" if kept else ""))
+            # 보존한 녹화의 오류 문구는 영상 정보 창에만 (확인한 오류로 → 카드·상태 화면에 빨간 오류로 안 뜸). 방송이 이어지면 새 파일로 이어서 녹화
+            q("UPDATE jobs SET status=?, error=?, err_seen=?, filepath=COALESCE(?, filepath), finished=? WHERE id=?",
+              ("done" if kept else "error", None if ended else msg[:500], int(bool(kept)), kept, time.time(), jid))
+            log(f"방송 종료 → 녹화 저장: {job['title']}" if ended else
+                f"녹화 끊김 (녹화분 보존): {job['title']} — {msg[:100]}" if kept else f"오류: {job['title']} — {msg[:100]}")
     finally:
         finished.append(True)
         LIVE.pop(jid, None)
@@ -1042,16 +1063,40 @@ def watch_stream(jid, prog, duration, stop, live=False):
         pass
 
 
-def aria2_done(path):
-    """aria2c 제어 파일 → (받은 바이트, 전체 바이트). 형식(aria2 문서 'Control File Format' v1, 빅엔디언):
-    버전2 · 확장4 · 해시길이4 · 해시 · 조각크기4 · 전체8 · 업로드8 · 비트맵길이4 · 완료 조각 비트맵
-    ponytail: 받는 중인 조각은 안 셈 → 실제보다 조각 몇 개(수 MB)만큼 적게 보임"""
+def aria2_bits(path):
+    """aria2c 제어 파일 → (조각 크기, 전체 바이트, 조각마다 받았는지 목록). 형식(aria2 문서 'Control File Format' v1, 빅엔디언):
+    버전2 · 확장4 · 해시길이4 · 해시 · 조각크기4 · 전체8 · 업로드8 · 비트맵길이4 · 완료 조각 비트맵(앞 조각이 높은 비트)"""
     with open(path, "rb") as fh:
         b = fh.read()
     i = 10 + int.from_bytes(b[6:10], "big")
     piece, total = int.from_bytes(b[i:i + 4], "big"), int.from_bytes(b[i + 4:i + 12], "big")
     n = int.from_bytes(b[i + 20:i + 24], "big")
-    return min(sum(bin(x).count("1") for x in b[i + 24:i + 24 + n]) * piece, total), total
+    bits = [x >> (7 - k) & 1 for x in b[i + 24:i + 24 + n] for k in range(8)]
+    return piece, total, bits[:-(-total // piece)] if piece else []
+
+
+def aria2_done(path):
+    """→ (받은 바이트, 전체 바이트). ponytail: 받는 중인 조각은 안 셈 → 실제보다 조각 몇 개(수 MB)만큼 적게 보임"""
+    piece, total, bits = aria2_bits(path)
+    return min(sum(bits) * piece, total), total
+
+
+def aria2_seek(path, duration, sec=12):
+    """aria2c 는 파일 여러 곳을 동시에 받아 '파일 끝'은 아직 빈칸 → 받아 둔 구간 중 가장 뒤쪽에서 sec 초를 담을 만큼 이어진 곳의
+    시작 시각(초). 못 찾으면 None. 시각은 바이트 위치 비율로 어림 (비트레이트가 일정하다고 봄)"""
+    piece, total, bits = aria2_bits(path)
+    need = sec * total / duration / piece if duration and piece else 0
+    end = len(bits)
+    while end > 0:
+        while end > 0 and not bits[end - 1]:
+            end -= 1
+        start = end
+        while start > 0 and bits[start - 1]:
+            start -= 1
+        if end > start and end - start >= need:
+            return max(start * piece / total * duration, end * piece / total * duration - sec - 3)
+        end = start
+    return None
 
 
 def stop_recording(vid):
@@ -1184,8 +1229,31 @@ def continue_live(job):
         return
     q("UPDATE jobs SET cut=? WHERE id=?", (time.time(), job["id"]))  # 방송 중에 녹화가 끝남 = 끊김 → 영상 정보에 표시
     if add_entries([{"id": f"{base}-p{n + 1}", "url": job["url"], "title": job["title"], "live_status": "is_live",
-                     "thumbnail": job["thumb"]}], "streams", job["sub_id"], json.loads(job["opts"] or "{}")):
+                     "thumbnail": job["thumb"], "open_date": job.get("live_open")}], "streams", job["sub_id"], json.loads(job["opts"] or "{}")):
         log(f"녹화 끊김 → 이어서 녹화 ({n + 1}번째 파일): {job['title']}")
+
+
+def finish_kept(job, path, s):
+    """방송이 끝나 오류로 멈춘 녹화(보존한 MPEG-TS) → 정상 종료와 같게 정리: 설정대로 압축(녹화하면서 이미 압축했으면 mp4 로만)
+    · 썸네일 · 크기/길이 기록. 실패하면 보존한 파일 그대로 → 그 경로"""
+    if path.endswith(".part"):  # 이름을 못 바꾼 채 보존한 파일(잠김)은 건드리지 않음
+        return path
+    try:
+        dur = probe_duration(path)
+        vc = next((c for t, c, *_ in probe_streams(path)[0] if t == "video"), None)
+        want = {"h264": "h264", "h265": "hevc", "av1": "av1"}.get(s["codec"])
+        tags = {"title": job["title"]}
+        if want and vc != want:
+            out, _ = compress(path, dur, s, job["id"], tags=tags)
+        else:
+            out, _ = compress(path, dur, s | {"codec": "copy", "src_codec": "h265" if vc == "hevc" else vc}, job["id"], force=True, tags=tags)
+        meta = json.loads((q("SELECT meta FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("meta") or "{}")
+        q("UPDATE jobs SET meta=? WHERE id=?", (json.dumps(meta | {"size": os.path.getsize(out), "duration": dur}, ensure_ascii=False), job["id"]))
+        frame_thumb(out, dur)
+        return out
+    except Exception as e:
+        log(f"끝난 녹화 정리 실패 (녹화 파일은 그대로): {job['title']} — {str(e)[-120:]}")
+        return path
 
 
 def auto_merge(job):
@@ -1441,7 +1509,8 @@ def scheduler_step():
             if time.time() >= next_check(sub, s):
                 check_sub(sub, s)
                 time.sleep(random.uniform(5, 15))  # 채널 사이 대기
-        time.sleep(60)
+        WAKE.wait(60)
+        WAKE.clear()
 
 
 def versions():
@@ -1657,7 +1726,14 @@ def job_preview(jid: int):
     files = [f for f in glob.glob(os.path.join(glob.escape(safe_dir(job_settings(j[0])["folder"])), "**", f"*{glob.escape('[' + j[0]['video_id'] + ']')}*"),
                                   recursive=True) if os.path.isfile(f) and not f.endswith((".ytdl", ".aria2", ".jpg", ".webp", ".png", ".vtt", ".srt", ".nfo"))]
     for f in sorted(files, key=os.path.getmtime, reverse=True)[:3]:
-        for seek in (["-sseof", "-15"], []):  # 끝에서 15초 전부터(쓰는 중인 마지막 몇 초는 덜 기록됐을 수 있음) → 안 되면 처음부터
+        seeks = [["-sseof", "-15"], []]  # 끝에서 15초 전부터(쓰는 중인 마지막 몇 초는 덜 기록됐을 수 있음) → 안 되면 처음부터
+        if os.path.exists(f + ".aria2"):  # 치지직 다시보기: 끝은 빈칸이라 받아 둔 가장 뒤쪽 구간에서
+            try:
+                t = aria2_seek(f + ".aria2", probe_streams(f)[1])
+            except (OSError, ValueError):
+                t = None
+            seeks = ([["-ss", f"{t:.1f}"]] if t is not None else []) + [[]]
+        for seek in seeks:
             hevc = any(c == "hevc" for _, c, *_ in probe_streams(f)[0])  # 사파리 등은 hvc1 태그가 있어야 H.265 재생
             r = subprocess.run(["ffmpeg", "-v", "error", *seek, "-i", f, "-t", "10", "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy",
                                 *(["-tag:v", "hvc1"] if hevc else []),
@@ -1908,11 +1984,13 @@ def sub_pattern(sid: int):
 @app.post("/api/subs/check-all")
 def check_all():
     q("UPDATE subs SET last_checked=0 WHERE enabled=1")  # 스케줄러가 채널 사이 간격을 두고 차례로 확인
+    WAKE.set()
 
 
 @app.post("/api/subs/{sid}/check")
 def check_now(sid: int):
     q("UPDATE subs SET last_checked=0 WHERE id=?", (sid,))
+    WAKE.set()
 
 
 @app.post("/api/subs/{sid}/toggle")
@@ -2025,8 +2103,9 @@ def audit():
 
 
 @app.post("/api/audit/run")
-def audit_now():  # 구독 확인 스레드가 1분 안에 실행
+def audit_now():  # 구독 확인 스레드가 바로 실행
     STATE["audit_now"] = True
+    WAKE.set()
 
 
 @app.post("/api/jobs/{jid}/redownload")
