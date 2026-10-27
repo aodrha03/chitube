@@ -170,7 +170,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.2.5"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.2.6"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -841,7 +841,9 @@ def run_job(job, s, dl=None):
                 sel = y.process_ie_result(copy.deepcopy(raw), download=False)
                 vbit = (sel.get("vbr") or max((sel.get("tbr") or 0) - (sel.get("abr") or 0), 0)) * 1000
                 pre, enc = encode_args(s, vbit, stream_hw, ts=is_live, size=(sel.get("width"), sel.get("height")) if is_live else None)
-                prog = f"/tmp/progress-{jid}.txt"  # ffmpeg 가 진행 상황을 쓰는 파일 (yt-dlp 는 ffmpeg 진행률을 안 알려줌)
+                # ffmpeg 가 진행 상황을 쓰는 파일 (yt-dlp 는 ffmpeg 진행률을 안 알려줌). 시도마다 따로 — 예전엔 작업마다 하나라
+                # 앞 시도의 정리가 다시 시작한 녹화의 기록 파일을 지워 진행 표시 · 멈춤 감시가 멈췄음
+                prog = f"/tmp/progress-{jid}-{time.time_ns()}.txt"
                 y.params.update(external_downloader={"default": "ffmpeg"},  # 영상·소리를 ffmpeg 하나가 같이 읽어 바로 압축
                                 # -extension_picky 는 HLS 전용 옵션 (일반 mp4 주소에 주면 ffmpeg 가 거부)
                                 external_downloader_args={"ffmpeg_i": pre + (["-extension_picky", "0"] if cz and "m3u8" in (sel.get("protocol") or "") else []),
@@ -894,7 +896,9 @@ def run_job(job, s, dl=None):
                 # 화질 오류면 다음 단계로. 그 밖의 오류라도 로그인한 채로 실패했으면 같은 화질을 로그인 없이 한 번 더
                 # (쿠키를 보내면 403·'볼 수 없음' 등으로 실패하고 로그인 없이는 받아지는 영상이 있음)
                 fmt_err = "Requested format is not available" in str(e)
-                if jid in CANCEL or i == len(steps) - 1 or not (fmt_err or (ck_ and ck)):  # ck: 쿠키 파일이 실제로 있을 때만
+                # 생방송이 녹화되다 끊긴 거면 다른 방법으로 처음부터 하지 않음 → 녹화분 보존하고 새 파일로 이어서 녹화 (아래 except)
+                # (예전엔 멈춰서 강제로 끝낸 녹화를 '로그인한 채로 실패'로 보고 같은 작업을 처음부터 다시 녹화했음)
+                if jid in CANCEL or i == len(steps) - 1 or not (fmt_err or (ck_ and ck)) or (job["live"] and keep_partial(job["video_id"], s, dry=True)):  # ck: 쿠키 파일이 실제로 있을 때만
                     raise
                 nxt = steps[i + 1]
                 log(f"{'요청한 화질을 못 받음' if fmt_err else '로그인한 채로 실패'} → {'받을 수 있는 최고 화질로' if nxt[0] == fmt_any else '같은 화질을'}"

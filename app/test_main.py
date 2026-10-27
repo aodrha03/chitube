@@ -753,4 +753,28 @@ main.time.sleep(4); stop_w.append(True); tw.join(5)
 main.stall_check = real_sc
 assert len(calls_w) >= 2 and main.LIVE[-7]["speed"] < 2e6  # 3MB / 약 3초 (예전 방식이면 시작부터 평균이라 수백 MB/s 이상)
 main.LIVE.pop(-7, None)
+# 로그인한 상태에서 녹화가 한참 되다 강제로 끝남 → '로그인 없이 다시'로 처음부터 다시 녹화하지 않고 녹화분 보존 (실제 로그 사례)
+lvd = main.safe_dir("Chzzk")
+os.makedirs(lvd, exist_ok=True)
+lpart = os.path.join(lvd, "2026-10-27 - 몰살 2026-10-27 17_43 [chzzk-live-77701].mp4.part")
+open(lpart, "wb").write(b"\0" * 2_000_000)
+tries_ = []
+class KilledDL(FakeDL):
+    def extract_info(self, *a, **k):
+        tries_.append(1)
+        return {"title": "몰살", "upload_date": "20261027", "is_live": True}
+    def prepare_filename(self, raw): return lpart[:-5]
+    def process_ie_result(self, raw, download=True):
+        raise main.yt_dlp.utils.DownloadError("ERROR: ffmpeg exited with code -9")
+ckf = main.COOKIE_FILES["chzzk"]
+open(ckf, "w").write("# Netscape HTTP Cookie File\n.naver.com\tTRUE\t/\tTRUE\t0\tNID_AUT\tx\n")
+real_dl, main.yt_dlp.YoutubeDL = main.yt_dlp.YoutubeDL, KilledDL
+real_ln, main.live_now = main.live_now, lambda j: True
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live) VALUES('chzzk-live-77701','https://chzzk.naver.com/live/" + "9" * 32 + "','몰살','{}','downloading',1)")
+kj3 = main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-77701'")[0]
+main.run_job(kj3, main.job_settings(kj3))
+main.yt_dlp.YoutubeDL, main.live_now = real_dl, real_ln
+os.remove(ckf)
+r = main.q("SELECT status, filepath FROM jobs WHERE id=?", (kj3["id"],))[0]
+assert len(tries_) == 1 and r["status"] == "done" and r["filepath"] == lpart[:-5] and os.path.isfile(lpart[:-5])
 print("queue page ok")
