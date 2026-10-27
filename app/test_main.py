@@ -444,7 +444,7 @@ main.stop_recording = lambda vid: calls.append(("q", vid))
 main.procs = lambda exe, vid: [(4242, [])]
 main.os.kill = lambda pid, sig: calls.append(("kill", pid, sig))
 st = {}
-main.stall_check(sj["id"], 1000, st); st["t"] -= main.STALL_SEC + 1
+main.stall_check(sj["id"], 1000, st); st["t"] -= 46
 main.stall_check(sj["id"], 1000, st)
 assert calls == [("q", "chzzk-live-555")] and st["acted"] == 1
 main.stall_check(sj["id"], 1000, st); assert len(calls) == 1  # 30초 안 됨
@@ -783,4 +783,46 @@ main.GPU_LIVE.pop(-21); assert main.reserve_gpu(-23, "nvenc", 2)
 for x in (-22, -23):
     main.GPU_LIVE.pop(x)
 assert main.bad_setting("gpu_live_max", "0") and not main.bad_setting("gpu_live_max", "3")
+# 1. DB 는 WAL (읽기 · 쓰기가 서로 막지 않음)
+assert main.q("PRAGMA journal_mode")[0]["journal_mode"] == "wal"
+# 3. 로그 파일
+main.log("로그 파일 시험 줄")
+assert "로그 파일 시험 줄" in main.logs_file().body.decode()
+# 7. 받은 직후 파일 검사
+assert main.check_file(f"{td}/없는파일.mp4") and main.check_file(f"{cd_}/v [cancel00001].mkv", 60) and not main.check_file(f"{cd_}/v [cancel00001].mkv", 2)
+# 5. 일시적 오류 → 바로 '오류' 말고 조금 뒤 다시 (그 전엔 안 가져감)
+class NetDL(FakeDL):
+    def process_ie_result(self, raw, download=True):
+        raise main.yt_dlp.utils.DownloadError("ERROR: unable to download video data: HTTP Error 503: Service Unavailable")
+real_dl, main.yt_dlp.YoutubeDL = main.yt_dlp.YoutubeDL, NetDL
+main.q("UPDATE jobs SET status='done' WHERE status IN ('queued','downloading')")
+main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('netfail0001','https://www.youtube.com/watch?v=netfail0001','n','{}','downloading')")
+nj = main.q("SELECT * FROM jobs WHERE video_id='netfail0001'")[0]
+main.run_job(nj, main.job_settings(nj))
+main.yt_dlp.YoutubeDL = real_dl
+r = main.q("SELECT status, retries, retry_at FROM jobs WHERE id=?", (nj["id"],))[0]
+assert r["status"] == "queued" and r["retries"] == 1 and r["retry_at"] > main.time.time() + 50
+assert main.claim(0, 5, 5) is None  # 1분 뒤까지는 안 가져감
+main.q("UPDATE jobs SET status='done' WHERE id=?", (nj["id"],))
+# 2. 전체 감시자: 받기 스레드가 사라진 '받는 중' 작업은 대기열로, 진행이 오래 없으면 ffmpeg 를 끝냄
+real_sleep, main.time.sleep = main.time.sleep, lambda x: None
+main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('orphan00001','https://www.youtube.com/watch?v=orphan00001','o','{}','downloading')")
+oj = main.q("SELECT id FROM jobs WHERE video_id='orphan00001'")[0]["id"]
+main.watchdog_step()
+main.WD[oj] = (main.WD[oj][0], main.WD[oj][1] - 200)
+main.watchdog_step()
+assert main.q("SELECT status FROM jobs WHERE id=?", (oj,))[0]["status"] == "queued"
+main.q("UPDATE jobs SET status='done' WHERE id=?", (oj,))
+fp = main.subprocess.Popen(["ffmpeg", "-v", "error", "-re", "-f", "lavfi", "-i", "testsrc", "-f", "nut", f"{td}/w [wdkill0001].nut"])
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live) VALUES('wdkill0001','https://chzzk.naver.com/live/x','w','{}','downloading',1)")
+wj = main.q("SELECT id FROM jobs WHERE video_id='wdkill0001'")[0]["id"]
+main.ACTIVE.add(wj); main.LIVE[wj] = {"status": "recording", "bytes": 10}
+main.watchdog_step()
+main.WD[wj] = (main.WD[wj][0], main.WD[wj][1] - 200)
+main.watchdog_step()
+main.time.sleep = real_sleep
+assert fp.wait(10) != 0 and wj in main.KILLED  # 멈춘 녹화의 ffmpeg 를 끝냄 → 녹화분 보존 · 이어서 녹화
+main.KILLED.discard(wj); main.ACTIVE.discard(wj); main.LIVE.pop(wj, None)
+main.q("UPDATE jobs SET status='done' WHERE id=?", (wj,))
+assert main.TRANSIENT_RE.search("진행이 멈춰서 정리함: ERROR: aria2c exited with code -9") and not main.TRANSIENT_RE.search("Video unavailable")
 print("queue page ok")

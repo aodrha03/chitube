@@ -47,6 +47,7 @@ except (ImportError, AttributeError):
 
 CONFIG = os.environ.get("CONFIG_DIR", "/config")
 OUT = os.environ.get("DOWNLOAD_DIR", "/downloads")
+LOG_DIR = os.path.join(CONFIG, "logs")
 DB = os.path.join(CONFIG, "app.db")
 COOKIES = os.path.join(CONFIG, "cookies.txt")  # 예전 공용 쿠키 (플랫폼별 파일이 없을 때 사용)
 # 플랫폼별 로그인 쿠키 (Netscape cookies.txt) → 멤버십 전용·성인 인증 영상
@@ -67,6 +68,7 @@ DEFAULTS = {
     "chzzk_concurrency": "2",   # 치지직 동시 다운로드 개수 (1~MAX_PARALLEL, 봇 차단 없음)
     "live_concurrency": "2",    # 유튜브 생방송 동시 녹화 개수 (1~MAX_PARALLEL)
     "chzzk_live_concurrency": "5",  # 치지직 생방송 동시 녹화 개수 (1~MAX_PARALLEL)
+    "stall_sec": "45",          # 생방송 녹화가 이만큼(초) 안 커지면 멈춘 것으로 보고 저장 → 새 파일로 이어서 녹화
     "gpu_live_max": "3",        # 그래픽카드로 동시에 녹화하면서 압축할 생방송 최대 개수. 넘는 방송은 원본으로 녹화 → 끝난 뒤 압축
     "compress_concurrency": "1",        # 유튜브 동시 압축 개수 (다 받은 뒤 압축 · 녹화 후 압축 · 나중에 압축). 다운로드 개수와 따로
     "chzzk_compress_concurrency": "1",  # 치지직 동시 압축 개수
@@ -80,7 +82,7 @@ DEFAULTS = {
     "login_refresh_days": "14",  # 로그인한 지 이 날짜가 지나면 화면에 "다시 로그인" 안내 (0 = 끔)
     # 생방송 녹화하면서 압축: off(녹화 후 압축) | gpu(그래픽카드로, 안 되면 녹화 후 압축) | gpu_cpu(그래픽카드 → 안 되면 CPU)
     # 그래픽카드가 없으면 off 와 같음 (CPU 실시간 압축은 못 따라가면 녹화가 끊겨서 그래픽카드가 있을 때만)
-    "live_compress": "gpu_cpu",
+    "live_compress": "off",
     "check_interval_min": "360",  # 구독 채널 확인 주기(분), 최소 MIN_INTERVAL
     "sub_fetch_limit": "15",    # 확인 시 탭마다 최신 N개만 조회
     "audit_hours": "4,16",      # 다운로드 점검 시각(시, 쉼표 구분). 비우면 끔
@@ -127,14 +129,19 @@ CHZZK_CONNS = 8     # 치지직 다시보기 한 개를 몇 갈래로 나눠 받
 MIN_INTERVAL = 30   # 구독 확인 최소 간격(분)
 CHZZK_LIVE_SEC = 10  # 치지직 구독 채널 방송 시작 확인 간격(초)
 AUDIT_DEPTH = 30    # 점검 시 탭마다 유튜브 최신 N개와 비교
-MAX_RETRIES = 3     # 점검 때 실패한 다운로드 자동 재시도 횟수
+MAX_RETRIES = 6     # 자동 재시도 한도: 일시적 오류 바로 다시(3번, RETRY_DELAY) + 점검 때 다시(나머지)
 ADULT_RE = re.compile(r"HTTP Error 401|Unauthorized")  # 치지직 성인 영상을 로그인(성인 인증) 없이 받을 때
 ADULT_MSG = "성인 인증 필요 — 치지직 로그인(성인 인증된 계정) 후 '다시 받기' (자동 재시도 안 함)"
 
 BOT_RE = re.compile(r"not a bot|HTTP Error 429|Too Many Requests|try again later|rate.?limit", re.I)
 UPCOMING_RE = re.compile(r"will begin|Premieres in|live event will", re.I)
 NOT_LIVE_RE = re.compile(r"not currently live", re.I)  # 치지직 API 가 막 시작한 방송을 잠깐 '종료'로 알려 줄 때 yt-dlp 오류
-STALL_SEC = 90  # 생방송 녹화 파일이 이만큼 안 커지면 멈춘 것으로 보고 새 파일로 이어서 녹화
+WATCHDOG_SEC = {"live": 180, "download": 1200, "compress": 1800}  # 다운로드: 받은 뒤 합치기(긴 4K 영상 · 느린 NAS) 동안도 진행이 안 바뀜  # 전체 감시자: 이만큼 진행이 전혀 없으면 멈춘 것으로 보고 정리
+# 일시적인 오류(네트워크 · 서버) → 점검을 기다리지 않고 1분 → 5분 → 15분 뒤 다시 (유튜브 봇 차단은 BOT_RE 로 따로 쉼)
+TRANSIENT_RE = re.compile(r"timed? ?out|Connection (reset|refused|aborted)|Remote end closed|HTTP Error 5\d\d|Temporary failure|"
+                          r"Network is unreachable|IncompleteRead|EOF occurred|Name or service not known|멈춰서 정리함|받은 파일 검사 실패", re.I)
+RETRY_DELAY = (60, 300, 900)
+LOG_DAYS = 7  # 로그 파일 보관 일수
 CHANNEL_RE = re.compile(r"^(https?://(?:www\.|m\.)?youtube\.com/(?:@[^/?#]+|channel/[^/?#]+|c/[^/?#]+))"
                         r"(?:/(?:videos|shorts|streams|featured|live))?/?$")
 
@@ -171,7 +178,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.3.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.4.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -187,6 +194,12 @@ def q(sql, args=()):
 
 def init_db():
     c = sqlite3.connect(DB)
+    if host_env()[0] != "windows":  # 윈도우 Docker Desktop 폴더 연결은 WAL 공유 메모리를 못 씀
+        # 읽기와 쓰기가 서로 막지 않음 → 받기 · 녹화 · 압축이 많이 동시에 돌 때 'database is locked' 가 크게 줄어듦
+        try:
+            c.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            pass
     c.executescript("""
     CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE IF NOT EXISTS subs(id INTEGER PRIMARY KEY, url TEXT UNIQUE, name TEXT,
@@ -198,7 +211,7 @@ def init_db():
     """)
     for t, col in (("jobs", "thumb TEXT"), ("jobs", "retries INTEGER DEFAULT 0"), ("jobs", "meta TEXT"), ("jobs", "opts TEXT"), ("jobs", "kind TEXT"), ("jobs", "live INTEGER DEFAULT 0"), ("jobs", "pri INTEGER DEFAULT 0"),
                    ("jobs", "started REAL"), ("jobs", "cut REAL"),  # 받기(녹화) 시작 시각, 생방송 녹화가 끊긴 시각
-                   ("jobs", "finished REAL"), ("jobs", "live_open TEXT"), ("jobs", "err_seen INTEGER DEFAULT 0"),  # err_seen: 오류를 확인함(목록·상태에서 숨김)
+                   ("jobs", "finished REAL"), ("jobs", "live_open TEXT"), ("jobs", "retry_at REAL"), ("jobs", "err_seen INTEGER DEFAULT 0"),  # err_seen: 오류를 확인함(목록·상태에서 숨김)
                    ("subs", "avatar TEXT"), ("subs", "quality TEXT"),
                    ("subs", "max_height TEXT"), ("subs", "folder TEXT"), ("subs", "kinds TEXT"),
                    ("subs", "interval_min TEXT"), ("subs", "last_error TEXT"), ("subs", "last_found INTEGER"),
@@ -223,7 +236,20 @@ def settings():
 
 def log(msg):
     LOG.appendleft({"t": time.time(), "msg": msg})
-    print(time.strftime("%m-%d %H:%M:%S"), msg, flush=True)
+    line = time.strftime("%m-%d %H:%M:%S") + " " + msg
+    print(line, flush=True)
+    try:  # 화면엔 최근 200줄만 → 원인을 나중에 찾을 수 있게 날짜별 파일로도 (LOG_DAYS 일치)
+        os.makedirs(LOG_DIR, exist_ok=True)
+        with open(os.path.join(LOG_DIR, time.strftime("chitube-%Y-%m-%d.log")), "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
+def prune_logs():
+    for f in glob.glob(os.path.join(LOG_DIR, "chitube-*.log")):
+        if os.path.getmtime(f) < time.time() - LOG_DAYS * 86400:
+            os.remove(f)
 
 
 def paused():
@@ -762,6 +788,7 @@ def reserve_gpu(jid, hw, most):
 
 def run_job(job, s, dl=None):
     jid = job["id"]
+    ACTIVE.add(jid)
     CANCEL.discard(jid)  # 예전 취소 요청이 남아 있으면 다시 받기가 바로 취소됐음
     st = "recording" if job["live"] else "downloading"
     LIVE[jid] = {"status": st, "progress": 0}
@@ -891,7 +918,7 @@ def run_job(job, s, dl=None):
                     return fetch(t, fmt, cookies)
                 except Exception as e:  # ffmpeg 자체 실패만 다음 방법으로 (차단·멤버십 등은 방법을 바꿔도 같으니 그대로 오류)
                     # 생방송이 한참 녹화되다 실패했으면(그래픽카드 오류 등) 다른 방법으로 처음부터 하지 않고 녹화분 보존 → 이어서 녹화
-                    if t is None or jid in CANCEL or "ffmpeg exited with code" not in str(e) or (job["live"] and keep_partial(job["video_id"], s, dry=True)):
+                    if t is None or jid in CANCEL or jid in KILLED or "ffmpeg exited with code" not in str(e) or (job["live"] and keep_partial(job["video_id"], s, dry=True)):
                         raise
                     log(f"받으면서 압축 실패({HW_NAME[t]}) → {'CPU 로' if t != 'cpu' else '다 받은 뒤 압축으로'} 다시: {str(e)[-120:]}")
                     cleanup_partial(job["video_id"], s)
@@ -912,7 +939,7 @@ def run_job(job, s, dl=None):
                 fmt_err = "Requested format is not available" in str(e)
                 # 생방송이 녹화되다 끊긴 거면 다른 방법으로 처음부터 하지 않음 → 녹화분 보존하고 새 파일로 이어서 녹화 (아래 except)
                 # (예전엔 멈춰서 강제로 끝낸 녹화를 '로그인한 채로 실패'로 보고 같은 작업을 처음부터 다시 녹화했음)
-                if jid in CANCEL or i == len(steps) - 1 or not (fmt_err or (ck_ and ck)) or (job["live"] and keep_partial(job["video_id"], s, dry=True)):  # ck: 쿠키 파일이 실제로 있을 때만
+                if jid in CANCEL or jid in KILLED or i == len(steps) - 1 or not (fmt_err or (ck_ and ck)) or (job["live"] and keep_partial(job["video_id"], s, dry=True)):  # ck: 쿠키 파일이 실제로 있을 때만
                     raise
                 nxt = steps[i + 1]
                 log(f"{'요청한 화질을 못 받음' if fmt_err else '로그인한 채로 실패'} → {'받을 수 있는 최고 화질로' if nxt[0] == fmt_any else '같은 화질을'}"
@@ -965,6 +992,12 @@ def run_job(job, s, dl=None):
         elif is_live:  # 원본 화질 유지하면서 재생 가능한 mp4 로 변환
             path, hw = compress(orig, dur, s | {"codec": "copy"}, jid, force=True, tags=tags)
         meta["size"] = os.path.getsize(path)
+        if bad := check_file(path, None if is_live else info.get("duration")):
+            if is_live:  # 끝난 방송은 다시 녹화할 수 없음 → 녹화본은 그대로 두고 알림만
+                log(f"녹화 파일 검사: {bad} — {info.get('title')}")
+            else:  # 깨진 파일은 지우고(남겨 두면 다음에 '이미 받은 파일'로 건너뜀) 일시적 오류처럼 조금 뒤 다시
+                os.remove(path)
+                raise RuntimeError(f"받은 파일 검사 실패: {bad}")
         base = os.path.splitext(path)[0]
         for f in glob.glob(glob.escape(base) + ".*-orig.srt"):  # "영상.en-orig.srt" 는 Plex/Jellyfin 이 언어를 못 읽음
             if not os.path.exists(f.replace("-orig.srt", ".srt")):
@@ -987,6 +1020,9 @@ def run_job(job, s, dl=None):
         log(f"완료: {info.get('title')}")
     except Exception as e:
         msg = str(e)
+        if jid in KILLED:  # 감시자가 멈춰서 정리함 → 일시적 오류로 (조금 뒤 다시)
+            KILLED.discard(jid)
+            msg = "진행이 멈춰서 정리함: " + msg
         # 다시 받기가 실패·취소됨(원본 삭제·비공개 등) → 비켜 둔 기존 파일로 되돌리고 '완료' 유지 (봇 차단은 나중에 다시 시도하므로 그대로)
         old = keep_files(job["filepath"]) and (jid in CANCEL or not BOT_RE.search(msg))
         if old:
@@ -1021,6 +1057,12 @@ def run_job(job, s, dl=None):
             q("UPDATE jobs SET status='queued', progress=0, error=NULL, retries=COALESCE(retries,0)+1 WHERE id=?", (jid,))
             log(f"방송 시작 직후라 아직 준비 안 됨 → 10초 뒤 다시 녹화: {job['title']}")
             time.sleep(10)
+        elif not job["live"] and TRANSIENT_RE.search(msg) and (job["retries"] or 0) < len(RETRY_DELAY):
+            wait = RETRY_DELAY[job["retries"] or 0]
+            cleanup_partial(job["video_id"], s) if "받은 파일 검사 실패" in msg else None
+            q("UPDATE jobs SET status='queued', progress=0, error=?, err_seen=1, retries=COALESCE(retries,0)+1, retry_at=? WHERE id=?",
+              (msg[:500], time.time() + wait, jid))
+            log(f"일시적 오류 → {wait // 60}분 뒤 다시 받기: {job['title']} — {msg[:100]}")
         elif "chzzk.naver.com" in job["url"] and ADULT_RE.search(msg):
             # 성인 인증이 필요한 영상은 다시 시도해도 같은 실패 → 자동 재시도 안 함 (retries 를 한도로), 로그인 후 '다시 받기'
             q("UPDATE jobs SET status='error', error=?, retries=?, finished=? WHERE id=?", (ADULT_MSG, MAX_RETRIES, time.time(), jid))
@@ -1041,6 +1083,7 @@ def run_job(job, s, dl=None):
                 f"녹화 끊김 (녹화분 보존): {job['title']} — {msg[:100]}" if kept else f"오류: {job['title']} — {msg[:100]}")
     finally:
         finished.append(True)
+        ACTIVE.discard(jid)
         GPU_LIVE.pop(jid, None)
         compress_done(jid)
         LIVE.pop(jid, None)
@@ -1092,7 +1135,7 @@ def probe_duration(path):
 
 
 def stall_check(jid, size, st):
-    """생방송 녹화가 멈췄는지(파일이 STALL_SEC 동안 안 커짐) 보고, 멈췄으면 ffmpeg 를 끝내 지금까지 녹화분을 저장하고
+    """생방송 녹화가 멈췄는지(파일이 설정 stall_sec 동안 안 커짐) 보고, 멈췄으면 ffmpeg 를 끝내 지금까지 녹화분을 저장하고
     새 파일로 이어서 녹화되게 (continue_live). 예: 녹화 중인 파일을 복사 · 이동하면(OS · Docker 폴더 연결 방식에 따라) ffmpeg 가 멈춤.
     먼저 'q'(정상 종료), 그래도 30초 안에 안 끝나면(쓰기에서 멈춰 'q' 를 못 읽음) 강제 종료"""
     now = time.time()
@@ -1100,13 +1143,16 @@ def stall_check(jid, size, st):
         st.update(size=size, t=now, acted=0)
         return
     idle, acted = now - st["t"], st.get("acted", 0)
-    if idle < STALL_SEC or acted >= 2 or (acted == 1 and idle < STALL_SEC + 30):
+    if idle < 20:  # 설정 최솟값 — 그 전엔 설정을 읽지 않음 (3초마다 불림)
+        return
+    limit = int(settings()["stall_sec"])
+    if idle < limit or acted >= 2 or (acted == 1 and idle < limit + 30):
         return
     j = q("SELECT video_id, title FROM jobs WHERE id=?", (jid,))
     if not j:
         return
     if not acted:
-        log(f"녹화가 {STALL_SEC}초째 멈춤 → 지금까지 녹화분 저장하고 새 파일로 이어서 녹화: {j[0]['title']}")
+        log(f"녹화가 {limit}초째 멈춤 → 지금까지 녹화분 저장하고 새 파일로 이어서 녹화: {j[0]['title']}")
         stop_recording(j[0]["video_id"])
     else:
         for pid, _ in procs(b"ffmpeg", j[0]["video_id"]):
@@ -1356,6 +1402,16 @@ def continue_live(job):
         log(f"녹화 끊김 → 이어서 녹화 ({n + 1}번째 파일): {job['title']}")
 
 
+def check_file(path, want=None):
+    """받은 직후 파일 검사 → 문제면 이유, 정상이면 None. 열리는지(길이를 읽을 수 있는지)와, 원래 길이를 알면 거의 같은지"""
+    got = probe_duration(path)
+    if got <= 0:
+        return "재생 불가 (손상)"
+    if want and abs(got - want) > max(3, want * 0.03):
+        return f"길이 불일치 ({got:.0f}초 / 원본 {want:.0f}초)"
+    return None
+
+
 def same_codec(path, codec):
     """파일의 영상 코덱이 설정 코덱(h264 · h265 · av1)과 같은지"""
     vc = next((c for t, c, *_ in probe_streams(path)[0] if t == "video"), None)
@@ -1414,7 +1470,7 @@ def claim(live, yt, cz):
     # 압축 단계(COMPRESSING)는 다운로드 개수에서 뺌 → 압축 중에도 다음 영상을 받음
     running = f"(SELECT COUNT(*) FROM jobs WHERE status='downloading' AND COALESCE(live,0)=? AND id NOT IN ({','.join(map(str, COMPRESSING.copy())) or 0}) AND {{}})"
     r = q(f"""UPDATE jobs SET status='downloading', error=NULL, err_seen=0, started={time.time()}, cut=NULL WHERE id=(
-             SELECT id FROM jobs WHERE status='queued' AND COALESCE(live,0)=?
+             SELECT id FROM jobs WHERE status='queued' AND COALESCE(live,0)=? AND COALESCE(retry_at,0) <= {time.time()}
                AND (({cz_sql} AND {running.format(cz_sql)} < ?) OR (NOT {cz_sql} AND {running.format('NOT ' + cz_sql)} < ?))
              ORDER BY COALESCE(pri,0) DESC, id LIMIT 1) RETURNING *""", (live, live, cz, live, yt))  # "맨 앞으로" 한 것 먼저
     return r[0] if r else None
@@ -1657,6 +1713,48 @@ def recording(cid):
                   (f"https://chzzk.naver.com/live/{cid}", time.time() - 60)))
 
 
+KILLED = set()  # 감시자가 멈춰서 정리한 작업 → 오류를 일시적 오류로 (조금 뒤 다시 · 녹화는 이어서)
+WD = {}  # 감시자: job → (마지막으로 본 진행 상태, 그 상태가 처음 보인 시각)
+ACTIVE = set()  # 지금 실제로 돌고 있는 run_job (스레드가 사라진 '받는 중' 작업 찾기용)
+
+
+def watchdog_step():
+    """1분마다 '받는 중' 작업 전부 확인: 진행(받은 양 · 압축 %)이 정해진 시간 동안 전혀 안 바뀌면 그 작업의 ffmpeg · aria2c 를 끝냄
+    → 생방송은 녹화분 보존 + 이어서 녹화, 다운로드는 조금 뒤 다시 받기 (작업별 감시가 어떤 이유로든 죽어도 살아남)
+    스레드가 사라진 채 '받는 중'으로 남은 작업은 대기열로 되돌림"""
+    now = time.time()
+    rows = q("SELECT id, video_id, title, live FROM jobs WHERE status='downloading'")
+    for r in rows:
+        jid, st = r["id"], LIVE.get(r["id"], {})
+        if st.get("waiting") or jid in MERGING:  # 압축 차례를 기다리는 중은 정상
+            WD.pop(jid, None)
+            continue
+        sig = (st.get("status"), st.get("bytes"), round(st.get("progress") or 0, 1), jid in ACTIVE)
+        if WD.get(jid, (None,))[0] != sig:
+            WD[jid] = (sig, now)
+            continue
+        idle = now - WD[jid][1]
+        if jid not in ACTIVE and idle >= 120:  # 받기 스레드가 없음 (예상 못 한 오류로 사라짐)
+            if r["live"]:
+                keep_partial(r["video_id"], job_settings(q("SELECT * FROM jobs WHERE id=?", (jid,))[0]))
+            q("UPDATE jobs SET status='queued' WHERE id=? AND status='downloading'", (jid,))
+            log(f"받기 스레드가 사라진 작업 → 대기열로 되돌림: {r['title']}")
+            WD.pop(jid, None)
+            continue
+        kind = "compress" if st.get("status") == "compressing" else "live" if r["live"] else "download"
+        if idle >= WATCHDOG_SEC[kind]:
+            killed = [pid for exe in (b"ffmpeg", b"aria2c") for pid, _ in procs(exe, r["video_id"])]
+            KILLED.add(jid)
+            for pid in killed:
+                os.kill(pid, 9)
+            log(f"{int(idle // 60)}분째 진행 없음 → 멈춰서 정리함 ({'녹화분 보존 · 이어서 녹화' if r['live'] else '조금 뒤 다시'}): {r['title']}"
+                + ("" if killed else " (정리할 프로그램 없음)"))
+            WD[jid] = (sig, now)  # 다음 판단은 다시 처음부터
+    for jid in set(WD) - {r["id"] for r in rows}:
+        WD.pop(jid, None)
+    time.sleep(60)
+
+
 def chzzk_watch_step():
     """구독한 치지직 채널(생방송 체크)의 방송 시작을 10초마다 확인 → 바로 녹화.
     방송 상태 API 하나만 부르는 가벼운 요청이라 유튜브 같은 차단 걱정 없음"""
@@ -1753,6 +1851,8 @@ async def lifespan(app):
         start(f"라이브 녹화 {i + 1}", worker, i, 1)
     start("구독 확인", scheduler)
     start("치지직 방송 감시", forever, "치지직 방송 감시", chzzk_watch_step)
+    start("작업 감시", forever, "작업 감시", watchdog_step)
+    prune_logs()
     threading.Thread(target=backfill_nfo, daemon=True).start()
     log("시작됨")
     yield
@@ -2358,7 +2458,7 @@ def redownload(jid: int):  # 기존 파일과 딸린 파일(썸네일·자막·n
         for f in glob.glob(glob.escape(os.path.splitext(j[0]["filepath"])[0]) + ".*"):
             if not f.endswith(".keep"):
                 os.replace(f, f + ".keep")
-    q("UPDATE jobs SET status='queued', progress=0, error=NULL, cut=NULL WHERE id=? AND status!='downloading'", (jid,))
+    q("UPDATE jobs SET status='queued', progress=0, error=NULL, cut=NULL, retry_at=NULL WHERE id=? AND status!='downloading'", (jid,))
 
 
 def keep_files(path):
@@ -2582,6 +2682,14 @@ def organize():
     return {"moved": moved}
 
 
+@app.get("/api/logs")
+def logs_file():
+    """최근 LOG_DAYS 일치 로그 파일을 하나로 (문제 원인 찾기용)"""
+    text = "".join(open(f, encoding="utf-8", errors="replace").read() for f in sorted(glob.glob(os.path.join(LOG_DIR, "chitube-*.log"))))
+    return Response(text, media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename=chitube-log-{time.strftime('%Y%m%d')}.txt"})
+
+
 @app.post("/api/updates/check")
 def updates_check():
     check_updates()
@@ -2610,7 +2718,7 @@ def get_settings():
 # crf: H.264/H.265 는 51 까지, AV1 은 63 까지
 NUMERIC = {"max_height": (0, 4320), "crf": (0, 63), "ratio": (10, 200), "concurrency": (1, MAX_PARALLEL), "chzzk_concurrency": (1, MAX_PARALLEL),
            "live_concurrency": (1, MAX_PARALLEL), "chzzk_live_concurrency": (1, MAX_PARALLEL),
-           "compress_concurrency": (1, MAX_PARALLEL), "gpu_live_max": (1, MAX_PARALLEL), "chzzk_compress_concurrency": (1, MAX_PARALLEL),
+           "compress_concurrency": (1, MAX_PARALLEL), "gpu_live_max": (1, MAX_PARALLEL), "stall_sec": (20, 600), "chzzk_compress_concurrency": (1, MAX_PARALLEL),
            "daily_limit": (1, 10000), "bot_cooldown_min": (1, 1440), "sleep_min": (0, 3600), "sleep_max": (0, 3600),
            "sleep_requests": (0, 60), "min_free_gb": (0, 100000), "login_refresh_days": (0, 365), "check_interval_min": (MIN_INTERVAL, 10080), "sub_fetch_limit": (1, 200)}
 CHOICES = {"quality": {*QUALITY, "original", "custom"}, "codec": {"none", "h264", "h265", "av1"},

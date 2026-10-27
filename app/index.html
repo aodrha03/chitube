@@ -211,7 +211,7 @@
       <section><h2 style="color:#00ffa3"><i class="czi"></i>치지직 새 영상 확인</h2><div id="sched-chzzk" class="sched"></div></section>
     </div>
     <div class="cols">
-      <section><h2>최근 활동</h2><div id="log" class="log"></div></section>
+      <section><div class="row"><h2 style="margin:0">최근 활동</h2><a href="/api/logs"><button class="sm" title="최근 7일 기록 (문제 원인 찾기용)">로그 파일 받기</button></a></div><div id="log" class="log"></div></section>
       <section><div class="row"><h2>최근 오류</h2><button class="sm" id="errhide" onclick="hideErrors()" hidden>모두 숨기기</button></div><div id="errors" class="log"></div></section>
     </div>
   </div>
@@ -241,6 +241,7 @@
         <label>다운로드 점검<select name="audit_hours"><option value="">끄기</option><option value="4">하루 1번 (새벽 4시)</option><option value="4,16">하루 2번 (새벽 4시 · 오후 4시)</option></select></label>
         <label>속도 제한 (예: 10M · 비우면 무제한)<input name="rate_limit" placeholder="무제한"></label>
         <label>로그인 갱신 안내 (일 · 0 = 끔)<input name="login_refresh_days" type="number" min="0" max="365"></label>
+        <label>녹화 멈춤 판단 (초 · 이만큼 안 커지면 저장하고 이어서 녹화)<input name="stall_sec" type="number" min="20" max="600"></label>
         <label>끊긴 녹화 자동 합치기<select name="auto_merge"><option value="1">켜기 (방송이 끝나면 조각을 한 파일로)</option><option value="0">끄기 (영상 정보 창에서 직접)</option></select></label>
         <label>유튜브 광고 구간 챕터 표시<select name="sponsorblock"><option value="0">끄기</option><option value="1">켜기 (SponsorBlock · 표시만, 자르지 않음)</option></select></label>
       </div>
@@ -267,7 +268,7 @@
       <h3 class="sg">압축 <span class="mute">동시 다운로드와 따로 · 압축하는 동안에도 다음 영상을 받음</span></h3>
       <div class="grid">
         <label>압축 방식<select name="youtube_stream_compress"><option value="1">받으면서 바로 압축 (임시 파일 없음 · 추천)</option><option value="0">다 받은 뒤 압축 (원본을 잠깐 저장)</option></select></label>
-        <label>생방송 녹화하면서 압축<select name="youtube_live_compress"><option value="gpu_cpu">그래픽카드로, 한계면 CPU 로 (추천)</option><option value="gpu">그래픽카드로만 (안 되면 녹화 후 압축)</option><option value="off">끄기 (녹화 후 압축)</option></select></label>
+        <label>생방송 녹화하면서 압축<select name="youtube_live_compress"><option value="off">끄기 · 녹화 후 압축 (가장 안정적 · 추천)</option><option value="gpu_cpu">그래픽카드로, 한계면 CPU 로</option><option value="gpu">그래픽카드로만 (안 되면 녹화 후 압축)</option></select></label>
         <label>동시 압축 (다 받은 뒤 · 녹화 후 · 나중에 압축)<select name="compress_concurrency" data-n="20"></select></label>
       </div>
       <h3 class="sg">다운로드 <span class="mute">봇 차단을 피하는 설정 · 기본값이 안전</span></h3>
@@ -295,7 +296,7 @@
       <h3 class="sg">압축 <span class="mute">동시 다운로드와 따로 · 압축하는 동안에도 다음 영상을 받음</span></h3>
       <div class="grid">
         <label>압축 방식<select name="chzzk_stream_compress"><option value="1">받으면서 바로 압축 (임시 파일 없음 · 추천)</option><option value="0">다 받은 뒤 압축 (원본을 잠깐 저장)</option></select></label>
-        <label>생방송 녹화하면서 압축<select name="chzzk_live_compress"><option value="gpu_cpu">그래픽카드로, 한계면 CPU 로 (추천)</option><option value="gpu">그래픽카드로만 (안 되면 녹화 후 압축)</option><option value="off">끄기 (녹화 후 압축)</option></select></label>
+        <label>생방송 녹화하면서 압축<select name="chzzk_live_compress"><option value="off">끄기 · 녹화 후 압축 (가장 안정적 · 추천)</option><option value="gpu_cpu">그래픽카드로, 한계면 CPU 로</option><option value="gpu">그래픽카드로만 (안 되면 녹화 후 압축)</option></select></label>
         <label>동시 압축 (다 받은 뒤 · 녹화 후 · 나중에 압축)<select name="chzzk_compress_concurrency" data-n="20"></select></label>
       </div>
       <h3 class="sg">다운로드 <span class="mute">차단 없음 · 생방송은 10초마다 확인 · 다시보기는 8갈래로 받음</span></h3>
@@ -500,7 +501,8 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '그래픽카드로 동시에 녹화하면서 압축 (넘는 생방송은 원본 녹화 → 끝난 뒤 압축)': 'Live streams compressed on the GPU at once (extra streams record original → compress after)', '압축 방식 · 동시 압축 개수는 YouTube / 치지직 탭에서 따로 정합니다': 'Compression method and concurrent compressions are set in the YouTube / Chzzk tabs',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '끄기 · 녹화 후 압축 (가장 안정적 · 추천)': 'Off · compress after recording (most stable · recommended)', '그래픽카드로, 한계면 CPU 로': 'GPU, CPU when maxed out',
+  '녹화 멈춤 판단 (초 · 이만큼 안 커지면 저장하고 이어서 녹화)': 'Recording stall limit (sec · save and continue in a new file)', '로그 파일 받기': 'Download log file', '최근 7일 기록 (문제 원인 찾기용)': 'Last 7 days (for troubleshooting)', '그래픽카드로 동시에 녹화하면서 압축 (넘는 생방송은 원본 녹화 → 끝난 뒤 압축)': 'Live streams compressed on the GPU at once (extra streams record original → compress after)', '압축 방식 · 동시 압축 개수는 YouTube / 치지직 탭에서 따로 정합니다': 'Compression method and concurrent compressions are set in the YouTube / Chzzk tabs',
   '동시 다운로드와 따로 · 압축하는 동안에도 다음 영상을 받음': 'Separate from downloads · the next video downloads while compressing',
   '동시 압축 (다 받은 뒤 · 녹화 후 · 나중에 압축)': 'Concurrent compressions (after download · after recording · compress later)',
   '압축 대기': 'Waiting to compress', '나중에 압축 중': 'Compressing (later)', '✕ 압축 취소': '✕ Cancel compression', '나중에 압축': 'Compress later',
