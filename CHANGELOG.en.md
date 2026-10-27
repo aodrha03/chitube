@@ -4,6 +4,13 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.7.1 — 2026-10-28
+### Fixed
+- **Deleted videos were downloaded again** by subscription checks and audits while still in the channel's latest list → removed videos are remembered and skipped (pasting the URL downloads it again).
+- **Buttons sometimes didn't react**: the Status page, filter chips, page numbers, subscription buttons, update buttons and the "resume" button were recreated every 2 s, so a click during a refresh was lost → redrawn only when the content changes.
+- **Deleting a subscription kept downloading its queued videos** (e.g. hundreds from "download all existing videos") → queued videos are removed from the queue (downloaded files and running downloads stay).
+- Bulk actions showed nothing on failure, and the result message was cut off.
+
 ## v1.7.0 — 2026-10-28
 ### Added
 - **Shows which device is compressing**: cards and the video info show the actual device, e.g. "Compressing · NVIDIA", "Compressing while downloading · CPU", "Compressing while recording · Intel Quick Sync" — for every kind of compression.

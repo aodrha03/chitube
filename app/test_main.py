@@ -930,4 +930,20 @@ except RuntimeError:
 main.run_ffmpeg = real_rf
 assert seen_enc and seen_enc[0] == ("CPU", "CPU")
 main.LIVE.pop(ej, None)
+# 지운 영상은 구독 확인 · 점검으로 다시 받지 않음, 주소를 넣어 직접 받으면 다시 받음
+main.q("INSERT INTO subs(url, name) VALUES('https://www.youtube.com/@rm_test', 'rm')")
+rsub = main.q("SELECT id FROM subs WHERE name='rm'")[0]["id"]
+assert main.add_entries([{"id": "removed0001", "url": "u", "title": "지울 영상"}], "videos", rsub) == 1
+main.delete_job(main.q("SELECT id FROM jobs WHERE video_id='removed0001'")[0]["id"])
+assert main.add_entries([{"id": "removed0001", "url": "u", "title": "지울 영상"}], "videos", rsub) == 0  # 구독 확인: 다시 안 받음
+assert "removed0001" in {r["video_id"] for r in main.q("SELECT video_id FROM removed")}
+assert main.add_entries([{"id": "removed0001", "url": "u", "title": "지울 영상"}], "videos") == 1  # 직접 받기: 받음
+assert not main.q("SELECT 1 FROM removed WHERE video_id='removed0001'")
+main.q("UPDATE jobs SET status='done' WHERE video_id='removed0001'")
+# 구독 삭제 → 그 채널의 대기 영상도 대기열에서 (받은 건 그대로)
+main.q("INSERT INTO subs(url, name) VALUES('https://www.youtube.com/@delsub', 'ds')")
+dsid = main.q("SELECT id FROM subs WHERE name='ds'")[0]["id"]
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,sub_id) VALUES('dsq0000001','u','q','{}','queued',?),('dsd0000001','u','d','{}','done',?)", (dsid, dsid))
+main.delete_sub(dsid)
+assert not main.q("SELECT 1 FROM jobs WHERE video_id='dsq0000001'") and main.q("SELECT 1 FROM jobs WHERE video_id='dsd0000001'")
 print("queue page ok")

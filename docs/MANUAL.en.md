@@ -131,7 +131,7 @@ services:
 
 - The **English / 한국어** button at the top right switches the UI language (remembered by your browser).
 - Click a video to open the **video info** window: playback, original and saved quality/size, Re-download · Download file · Remove from list.
-- **Remove from list** only removes the entry — **the file stays**. To delete the file too, use **Delete with files** (video, thumbnail, subtitles and .nfo; can't be undone; not for videos still downloading; the channel poster stays).
+- **Remove from list** only removes the entry — **the file stays**. To delete the file too, use **Delete with files** (video, thumbnail, subtitles and .nfo; can't be undone; not for videos still downloading; the channel poster stays). Either way, a removed video is **not downloaded again** by subscriptions or audits (pasting its URL downloads it again).
 
 ## 3. Downloading · Subscriptions
 

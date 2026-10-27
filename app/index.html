@@ -506,7 +506,7 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '파일까지 삭제': 'Delete with files', '영상 파일까지 지울까요?': 'Delete the video file too?', '썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다.': 'Thumbnail, subtitles and .nfo are deleted too. This cannot be undone.',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '구독 삭제? (받은 파일은 유지 · 아직 안 받은 대기 영상은 대기열에서 빠짐)': 'Delete subscription? (downloaded files are kept · queued videos are removed from the queue)', '(구독 확인으로 다시 받지 않음)': '(subscriptions won\'t download it again)', '목록에서 삭제? (파일은 유지 · 구독 확인으로 다시 받지 않음)': 'Remove from list? (file kept · subscriptions won\'t download it again)', '파일까지 삭제': 'Delete with files', '영상 파일까지 지울까요?': 'Delete the video file too?', '썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다.': 'Thumbnail, subtitles and .nfo are deleted too. This cannot be undone.',
   '목록에서 지우고, 남은 조각 · 썸네일 같은 딸린 파일도 지울까요?': 'Remove from the list and delete leftover files (parts, thumbnail)?', '개를 영상 파일까지 지울까요?': ' videos — delete the files too?', '(받는 중인 영상은 건너뜀)': '(videos still downloading are skipped)', '받은 직후 검사:': 'Post-download check:', '길이가 원본과 다름': 'Length differs from the source', '품질 검사': 'Quality check', '이상 없음': 'No issues', '(10초 넘는 화면 멈춤 · 무음 없음)': '(no freeze or silence over 10s)', '화면 멈춤': 'Frozen video', '무음': 'Silence', '측정:': 'Measured:', '동시에 녹화하면서 압축 권장': 'recommended concurrent live GPU compressions', '⚠ 확인해 볼 설정': '⚠ Settings to check', '진단 파일 받기': 'Download diagnostics', '로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만': 'Logs, status, settings and active jobs in one file (no login info)',
   '끊긴 녹화는 다시보기로 메우기 (치지직)': 'Fill recording gaps with the replay (Chzzk)', '켜기 (끊겼던 방송은 다시보기도 받음)': 'On (also download the replay of interrupted streams)',
   '다시보기를 받은 뒤 끊긴 녹화본': 'Interrupted recording after the replay is downloaded', '그대로 두기': 'Keep', '지우기 (다시보기만 남김)': 'Delete (keep only the replay)',
@@ -920,10 +920,10 @@ function setFilter(p, k, search) {  // 필터·검색을 바꾸면 1페이지부
 }
 function renderPager(p, total) {  // « ‹ 1 2 [3] 4 5 › »  (현재 페이지 앞뒤 3개씩)
   const pages = Math.ceil(total / PER), cur = VIEW[p].page, go = n => `onclick="VIEW.${p}.page=${n}; refresh(); document.getElementById('${p}-all').scrollIntoView()"`;
-  if (pages <= 1) return document.getElementById(`${p}-pager`).innerHTML = '';
+  if (pages <= 1) return H(document.getElementById(`${p}-pager`)).html = '';
   const nums = [];
   for (let n = Math.max(1, cur - 3); n <= Math.min(pages, cur + 3); n++) nums.push(`<button class="${n === cur ? 'on' : ''}" ${go(n)}>${n}</button>`);
-  document.getElementById(`${p}-pager`).innerHTML = `<button ${go(1)} ${cur === 1 ? 'disabled' : ''}>«</button><button ${go(Math.max(1, cur - 1))} ${cur === 1 ? 'disabled' : ''}>‹</button>
+  H(document.getElementById(`${p}-pager`)).html = `<button ${go(1)} ${cur === 1 ? 'disabled' : ''}>«</button><button ${go(Math.max(1, cur - 1))} ${cur === 1 ? 'disabled' : ''}>‹</button>
     ${nums.join('')}<button ${go(Math.min(pages, cur + 1))} ${cur === pages ? 'disabled' : ''}>›</button><button ${go(pages)} ${cur === pages ? 'disabled' : ''}>»</button>
     <span class="mute">${total}개 중 ${(cur - 1) * PER + 1}–${Math.min(cur * PER, total)} · 전체 ${pages}페이지</span>`;
 }
@@ -933,7 +933,7 @@ const countOf = (c, k) => k === 'active' ? c.downloading || 0 : k === 'error' ? 
 
 function renderFilters(p, counts) {
   const v = VIEW[p], quick = { error: ['retry', '보이는 것 전부 다시 받기'], queued: ['cancel', '보이는 대기 전부 취소'] }[v.status];
-  document.getElementById(`${p}-filters`).innerHTML = FILTERS.map(([k, t]) =>
+  H(document.getElementById(`${p}-filters`)).html = FILTERS.map(([k, t]) =>
     `<button class="${v.status === k ? 'on' : ''}" onclick="setFilter('${p}','${k}')">${t} ${countOf(counts, k)}</button>`).join('')
     + (quick && v.ids.length ? ` <button class="sm" onclick="bulk('${p}','${quick[0]}', VIEW.${p}.ids)">${quick[1]}</button>` : '');
 }
@@ -965,8 +965,11 @@ async function bulk(p, action, ids = [...(VIEW[p].sel || [])]) {
   if (!ids.length) return alert('선택한 영상이 없습니다');
   const what = { top: '맨 앞으로', cancel: '취소', retry: '다시 받기', delete: '목록에서 삭제 (파일은 유지)', delete_files: '파일까지 삭제' }[action];
   if (!confirm(action === 'delete_files' ? `${ids.length}개를 영상 파일까지 지울까요?\n썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다. (받는 중인 영상은 건너뜀)` : `${ids.length}개 ${what}?`)) return;
-  const r = await api('/api/jobs/bulk', { method: 'POST', body: JSON.stringify({ ids, action }) });
-  document.querySelector(`[data-platform=${p}] .msg`).textContent = `${r.done}개 ${what.split(' ')[0]} 처리`;
+  const msg = document.querySelector(`[data-platform=${p}] .msg`);
+  try {
+    const r = await api('/api/jobs/bulk', { method: 'POST', body: JSON.stringify({ ids, action }) });
+    msg.textContent = `${what.replace(/ \(.*\)$/, '')}: ${r.done}개 처리 (${ids.length}개 중)`;
+  } catch (e) { msg.textContent = '실패: ' + e.message; }
   if (VIEW[p].sel) VIEW[p].sel.clear();
   refresh();
 }
@@ -987,6 +990,9 @@ const ERR_KO = [[/not currently live/i, '방송 중이 아님 (방송이 끝나 
 const koErr = e => { const m = ERR_KO.find(([re]) => re.test(e || '')); return m ? m[1] : (e || '').replace(/^ERROR:\s*(\[[^\]]+\]\s*)?/, ''); };
 // 내용이 그대로면 다시 그리지 않음 (2초마다 목록을 새로 그리면 이미지가 다시 불려 깜빡임)
 function setHTML(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
+// 2초마다 다시 그리는 곳은 H(el).html = … 로: 내용이 그대로면 버튼을 다시 만들지 않음
+// (예전엔 상태 화면 · 필터 · 페이지 · 구독 채널 버튼이 2초마다 새로 만들어져, 누르는 순간 바뀌면 클릭이 사라졌음)
+const H = el => ({ set html(v) { setHTML(el, v); } });
 // 목록 카드: 바뀐 카드만 새로 그림 (예전엔 진행률 하나만 바뀌어도 60개를 통째로 다시 그려 스크롤·클릭이 버벅였음)
 function setCards(el, items) {  // items = [[키, html], …]
   if (!items.length) return setHTML(el, '<div class="mute">없음</div>');
@@ -1072,11 +1078,11 @@ function pick(s, clicked = true) {
   document.getElementById(`${p}-subwrap`).hidden = false;
   document.getElementById(`${p}-subname`).textContent = s.name;
   document.getElementById(`${p}-subsched`).textContent = schedText(s);
-  document.getElementById(`${p}-subacts`).innerHTML = `
+  H(document.getElementById(`${p}-subacts`)).html = `
     <button class="sm" onclick="act('/api/subs/${s.id}/check','POST')">지금 확인</button>
     <button class="sm" onclick="confirm('이 채널의 기존 영상을 전부(오래된 것부터) 받을까요? 이미 받은 영상은 건너뜀') && act('/api/subs/${s.id}/backfill','POST')">기존 영상 전부 받기</button>
     <button class="sm" onclick="act('/api/subs/${s.id}/toggle','POST')">${s.enabled ? '일시정지' : '재개'}</button>
-    <button class="sm" onclick="confirm('구독 삭제? (받은 파일은 유지)') && act('/api/subs/${s.id}','DELETE')">삭제</button>`;
+    <button class="sm" onclick="confirm('구독 삭제? (받은 파일은 유지 · 아직 안 받은 대기 영상은 대기열에서 빠짐)') && act('/api/subs/${s.id}','DELETE')">삭제</button>`;
   if (!clicked) return;  // 자동 새로고침 때는 입력 중인 설정 폼을 건드리지 않음
   const f = document.getElementById(`${p}-subform`), kinds = (s.kinds || 'videos').split(',');
   for (const k of ['quality', 'max_height', 'folder', 'interval_min', 'title_inc', 'title_exc', 'min_min']) f[k].value = s[k] || '';
@@ -1115,7 +1121,7 @@ async function loadStatus() {
   const dead = Object.entries(st.threads).filter(([, ok]) => !ok).map(([n]) => n);
   const c = st.counts, speed = st.active.reduce((n, a) => n + (a.speed || 0), 0);
   const kpi = (cls, title, big, sub) => `<div class="kpi ${cls}"><span class="mute">${title}</span><b>${big}</b><span class="mute" title="${esc(sub)}">${esc(sub)}</span></div>`;
-  document.getElementById('stats').innerHTML = [
+  H(document.getElementById('stats')).html = [
     kpi('', '진행 중', st.active.length, st.active.length ? `합계 ${(speed / 1048576).toFixed(1)} MB/s` : '없음'),
     kpi('', '대기', c.queued || 0, '다운로드 기다리는 중'),
     kpi('', '완료', c.done || 0, '전체'),
@@ -1126,9 +1132,9 @@ async function loadStatus() {
   const dot = cls => `<span class="dot ${cls}"></span>`, ver = s => (String(s || '').match(/\d+(\.\d+)+/) || ['없음'])[0];
   const why = Object.entries(st.hw_why || {}), L = st.load;
   const meter = pct => `<div class="meter"><i style="width:${Math.min(pct, 100).toFixed(0)}%; ${pct > 85 ? 'background:#ff6b6b' : pct > 60 ? 'background:var(--warn)' : ''}"></i></div>`;
-  document.getElementById('sysok').innerHTML = dead.length ? `<span class="err">멈춤: ${esc(dead.join(', '))}</span>`
+  H(document.getElementById('sysok')).html = dead.length ? `<span class="err">멈춤: ${esc(dead.join(', '))}</span>`
     : `<span class="mute">정상 · 가동 ${rel(st.started).replace(' 전', '')}</span>`;
-  document.getElementById('sys').innerHTML = [
+  H(document.getElementById('sys')).html = [
     ['CPU', `${L.cpu.toFixed(0)}% <span class="mute">· ${L.cores}코어</span>${meter(L.cpu)}`],
     ['메모리', `${size(L.mem)} <span class="mute">/ ${size(L.mem_total)}</span>${meter(L.mem / L.mem_total * 100)}`],
     ...(L.gpus.length ? L.gpus.map(g => ['GPU', `${g.util.toFixed(0)}% <span class="mute">· 인코더 ${g.enc.toFixed(0)}% · 메모리 ${size(g.mem)} / ${size(g.mem_total)} · ${esc(g.name)}</span>${meter(g.util)}`])
@@ -1200,11 +1206,11 @@ function renderUpdates(st) {
   document.getElementById('appver').textContent = 'v' + st.app_version;
   document.getElementById('upddot').hidden = !out.length;
   if (tab !== 'status') return;
-  document.getElementById('updinfo').innerHTML = !u ? '업데이트 확인 중...' : out.length
+  H(document.getElementById('updinfo')).html = !u ? '업데이트 확인 중...' : out.length
     ? `<b style="color:var(--fg)">업데이트 있음:</b> ${out.map(i => `${esc(i.name)} ${esc(i.latest.replace(/^v/, ''))}`).join(', ')}`
     : `프로그램 최신 · ${clock(u.checked)} 확인`;
   const rel = out.find(i => i.how === 'release');  // 치튜브 새 버전 → 릴리스 페이지에서 받기 (설치 환경마다 업데이트 방법이 달라 안내만)
-  document.getElementById('updates').innerHTML = (rel ? `<a href="${esc(rel.url)}" target="_blank" rel="noopener"><button class="sm primary">새 버전 받기 · ${esc(rel.latest.replace(/^v/, ''))}</button></a> ` : '')
+  H(document.getElementById('updates')).html = (rel ? `<a href="${esc(rel.url)}" target="_blank" rel="noopener"><button class="sm primary">새 버전 받기 · ${esc(rel.latest.replace(/^v/, ''))}</button></a> ` : '')
     + (out.some(i => i.how === 'restart') ? `<button class="sm primary" onclick="applyUpdates()">재시작해서 업데이트</button>`
        : `<button class="sm" onclick="checkUpdates(this)">지금 확인</button>`);
 }
@@ -1231,7 +1237,7 @@ async function applyUpdates() {
 function pauseBar(st) {
   const b = document.getElementById('pausebar'), low = st.disks.filter(d => d.low);
   b.hidden = !st.paused_until && !low.length;
-  b.innerHTML = (low.length ? `<b>디스크 공간 부족 → 그 디스크에 저장하는 새 다운로드·녹화를 멈췄습니다.</b>
+  H(b).html = (low.length ? `<b>디스크 공간 부족 → 그 디스크에 저장하는 새 다운로드·녹화를 멈췄습니다.</b>
     <div class="mute">${low.map(d => `${esc(d.path.replace(/^\/host/, '') || '/')} 남은 ${size(d.free)}`).join(' · ')} — 파일을 정리하거나 설정 → 공통 → 최소 여유 공간을 낮추면 자동으로 다시 받습니다.</div>` : '')
     + (st.paused_until ? `<b>유튜브 차단 신호 감지 → ${clock(st.paused_until)}까지 다운로드/확인을 쉽니다.</b>
     <div class="err">${esc(st.pause_reason.slice(0, 200))}</div>
@@ -1307,8 +1313,8 @@ async function detail(id) {
         ${j.status === 'done' && j.file_ok ? `<a href="/api/jobs/${j.id}/file?download=1"><button>파일 받기</button></a>` : ''}
         ${j.status === 'queued' ? `<button onclick="act('/api/jobs/${j.id}/top','POST'); dlg.close()">맨 앞으로</button>` : ''}
         ${['error', 'done', 'cancelled'].includes(j.status) && !(j.live && j.file_ok) ? `<button onclick="(${j.status !== 'done'} || confirm('기존 파일을 지우고 다시 받을까요?')) && (act('/api/jobs/${j.id}/retry','POST'), dlg.close())">다시 받기</button>` : ''}
-        ${['error', 'done', 'cancelled', 'queued'].includes(j.status) ? `<button onclick="confirm('목록에서 삭제? (파일은 유지)') && (act('/api/jobs/${j.id}','DELETE'), dlg.close())">목록에서 삭제</button>` : ''}
-        ${['error', 'done', 'cancelled', 'queued'].includes(j.status) && !j.recomp ? `<button class="danger" onclick="confirm('${j.file_ok ? '영상 파일까지 지울까요?\\n썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다.' : '목록에서 지우고, 남은 조각 · 썸네일 같은 딸린 파일도 지울까요?'}') && (act('/api/jobs/${j.id}?files=1','DELETE'), dlg.close())">파일까지 삭제</button>` : ''}
+        ${['error', 'done', 'cancelled', 'queued'].includes(j.status) ? `<button onclick="confirm('목록에서 삭제? (파일은 유지 · 구독 확인으로 다시 받지 않음)') && (act('/api/jobs/${j.id}','DELETE'), dlg.close())">목록에서 삭제</button>` : ''}
+        ${['error', 'done', 'cancelled', 'queued'].includes(j.status) && !j.recomp ? `<button class="danger" onclick="confirm('${j.file_ok ? '영상 파일까지 지울까요?\\n썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다. (구독 확인으로 다시 받지 않음)' : '목록에서 지우고, 남은 조각 · 썸네일 같은 딸린 파일도 지울까요?'}') && (act('/api/jobs/${j.id}?files=1','DELETE'), dlg.close())">파일까지 삭제</button>` : ''}
         <span style="flex:1"></span>
         <button class="primary" onclick="dlg.close()">닫기</button>
       </div>`;

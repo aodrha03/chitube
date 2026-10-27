@@ -180,7 +180,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.7.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.7.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -210,6 +210,7 @@ def init_db():
         sub_id INTEGER, status TEXT DEFAULT 'queued', progress REAL DEFAULT 0, filepath TEXT,
         error TEXT, created REAL);
     CREATE TABLE IF NOT EXISTS audits(id INTEGER PRIMARY KEY, started REAL, finished REAL, result TEXT);
+    CREATE TABLE IF NOT EXISTS removed(video_id TEXT PRIMARY KEY, t REAL);  -- 사용자가 목록에서 지운 영상 → 구독 확인 · 점검이 다시 받지 않음
     """)
     for t, col in (("jobs", "thumb TEXT"), ("jobs", "retries INTEGER DEFAULT 0"), ("jobs", "meta TEXT"), ("jobs", "opts TEXT"), ("jobs", "kind TEXT"), ("jobs", "live INTEGER DEFAULT 0"), ("jobs", "pri INTEGER DEFAULT 0"),
                    ("jobs", "started REAL"), ("jobs", "cut REAL"),  # 받기(녹화) 시작 시각, 생방송 녹화가 끊긴 시각
@@ -405,6 +406,13 @@ def list_entries(url, limit=None):
 
 def add_entries(entries, kind, sub_id=None, opts=None, filt=True):
     added = 0
+    if sub_id:  # 사용자가 지운 영상은 구독 확인 · 점검으로 다시 받지 않음 (예전엔 채널 최신 목록에 있으면 지워도 또 받았음)
+        gone = {r["video_id"] for r in q(f"SELECT video_id FROM removed WHERE video_id IN ({','.join('?' * len(entries)) or 'NULL'})",
+                                         [e["id"] for e in entries])}
+        entries = [e for e in entries if e["id"] not in gone]
+    else:  # 주소를 넣어 직접 받으면 그 영상은 다시 받는 것으로
+        for e in entries:
+            q("DELETE FROM removed WHERE video_id=?", (e["id"],))
     if f := filt and sub_id and q("SELECT title_inc, title_exc, min_min FROM subs WHERE id=?", (sub_id,)):
         entries = [e for e in entries if sub_match(f[0], e)]
     for e in entries:
@@ -1797,7 +1805,7 @@ def run_audit(s):
     started, res = time.time(), {"subs": [], "missing_added": 0, "gone": []}
     log("다운로드 점검 시작")
     try:
-        known = {r["video_id"] for r in q("SELECT video_id FROM jobs")}
+        known = {r["video_id"] for r in q("SELECT video_id FROM jobs UNION SELECT video_id FROM removed")}  # 지운 영상은 '놓친 영상' 아님
         for sub in q("SELECT * FROM subs WHERE enabled=1 ORDER BY name"):
             if paused():
                 res["aborted"] = "유튜브 차단 신호로 유튜브 비교 중단"
@@ -2407,12 +2415,18 @@ def delete_job(jid: int, files: bool = False):  # 목록에서 제거. files=1 �
         j = q("SELECT filepath, title FROM jobs WHERE id=? AND status!='downloading'", (jid,))
         if j:
             n = remove_files(j[0]["filepath"])
-            q("DELETE FROM jobs WHERE id=?", (jid,))
+            forget(jid)
             log(f"목록과 파일 삭제: {j[0]['title']} (파일 {n}개)")
         return
     j = q("SELECT filepath FROM jobs WHERE id=? AND status!='downloading'", (jid,))
     if j:
         restore_keep(j[0]["filepath"])  # 다시 받기 대기 중이던 영상이면 비켜 둔 파일을 되돌린 뒤 목록에서만 뺌
+        forget(jid)
+
+
+def forget(jid):
+    """목록에서 지우고 '지운 영상'으로 기억 (구독 확인 · 점검이 다시 받지 않게)"""
+    q("INSERT OR REPLACE INTO removed(video_id, t) SELECT video_id, ? FROM jobs WHERE id=?", (time.time(), jid))
     q("DELETE FROM jobs WHERE id=? AND status!='downloading'", (jid,))
 
 
@@ -2523,7 +2537,12 @@ def toggle_sub(sid: int):
 
 @app.delete("/api/subs/{sid}")
 def delete_sub(sid: int):
+    """구독 삭제 + 그 채널의 아직 안 받은 대기 영상도 대기열에서 뺌 (받은 파일 · 받는 중인 영상은 그대로).
+    예전엔 '기존 영상 전부 받기'로 수백 개를 넣은 뒤 구독을 지워도 며칠 동안 계속 받았음"""
+    n = len(q("DELETE FROM jobs WHERE sub_id=? AND status='queued' RETURNING id", (sid,)))
     q("DELETE FROM subs WHERE id=?", (sid,))
+    if n:
+        log(f"구독 삭제 → 대기 중이던 영상 {n}개도 대기열에서 뺌")
 
 
 CPU_PREV = [0, 0]  # 직전 /proc/stat (유휴, 전체) → 상태 화면 새로고침 사이의 CPU 사용률
