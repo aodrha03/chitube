@@ -665,4 +665,31 @@ kj2 = main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-9078'")[0]
 out = main.finish_kept(kj2, f"{td}/rec2.mp4", main.settings() | {"codec": "h265", "crf": "0", "ratio": "200", "preset": "ultrafast"})
 assert b"ftyp" in open(out, "rb").read(16)
 main.compress_done(kj2["id"]); main.LIVE.pop(kj2["id"], None)
+# ffmpeg 오류 출력이 많아도(깨진 녹화본) 멈추지 않고 끝남
+err = main.run_ffmpeg(["sh", "-c", "head -c 300000 /dev/zero | tr '\\0' x >&2; exit 1"], 0, -1)
+assert err and len(err) <= 3000
+assert main.run_ffmpeg(["true"], 0, -1) is None
+# 썸네일 만들기가 실패해도 예외로 받기를 망치지 않음
+main.frame_thumb(f"{td}/없는파일.mp4")
+# 코덱 비교: 재시작으로 압축을 못 한 원본은 다시 압축, 이미 압축본이면 그대로
+assert main.same_codec(f"{td}/rec2.mp4", "h264") and not main.same_codec(f"{td}/rec2.mp4", "h265")
+# 방송 상태 확인이 잠깐 실패하면 다시 확인 (바로 '방송 끝'으로 보지 않음)
+calls_, real_cl = [], main.chzzk_live
+def flaky(cid):
+    calls_.append(1)
+    if len(calls_) < 2:
+        raise OSError("일시 오류")
+    return [{"id": "x"}]
+main.chzzk_live, real_sleep, main.time.sleep = flaky, main.time.sleep, lambda x: None
+assert main.live_now({"video_id": "chzzk-live-1", "url": "https://chzzk.naver.com/live/" + "a" * 32, "title": "t"}) and len(calls_) == 2
+main.chzzk_live, main.time.sleep = real_cl, real_sleep
+# 나중에 압축 중엔 다시 받기 · 목록에서 삭제 막음
+main.RECOMP.add(rj)
+for f_ in (main.redownload, main.delete_job):
+    try:
+        f_(rj); assert False
+    except main.HTTPException as e:
+        assert e.status_code == 409
+assert main.bulk(main.Bulk(ids=[rj], action="delete"))["done"] == 0
+main.RECOMP.discard(rj)
 print("queue page ok")
