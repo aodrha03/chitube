@@ -692,4 +692,19 @@ for f_ in (main.redownload, main.delete_job):
         assert e.status_code == 409
 assert main.bulk(main.Bulk(ids=[rj], action="delete"))["done"] == 0
 main.RECOMP.discard(rj)
+# 이어 녹화는 구독 필터 없이 (방송 중 제목이 제외 단어로 바뀌어도)
+main.q("INSERT INTO subs(url, name, title_exc) VALUES('https://chzzk.naver.com/" + "f" * 32 + "', 'fx', '휴방')")
+fx = main.q("SELECT id FROM subs WHERE name='fx'")[0]["id"]
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live,sub_id) VALUES('chzzk-live-9601','https://chzzk.naver.com/live/" + "f" * 32 + "','휴방 공지','{}','done',1,?)", (fx,))
+real_ln = main.live_now
+main.live_now = lambda j: True
+main.continue_live(main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-9601'")[0])
+main.live_now = real_ln
+assert main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-9601-p2'")
+# 녹화가 아직 압축 중이면 다시보기는 이번엔 건너뛰되 기억하지 않음 (끝난 뒤 다시 판단)
+main.q("INSERT INTO jobs(video_id,url,title,opts,live,status,live_open) VALUES('chzzk-live-9602',?,'방송','{}',1,'downloading','2026-10-26 20:00:00')",
+       (f"https://chzzk.naver.com/live/{cz}",))
+real_api, main.chzzk_api = main.chzzk_api, lambda path: {"liveOpenDate": "2026-10-26 20:00:00"}
+assert main.recorded_replay(cz, {"videoNo": 601, "videoType": "REPLAY", "duration": 3000}) and "601" not in main.REPLAY_SEEN
+main.chzzk_api = real_api
 print("queue page ok")

@@ -170,7 +170,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.2.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.2.3"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -374,9 +374,9 @@ def list_entries(url, limit=None):
     return entries, info.get("channel") or info.get("uploader") or info.get("title"), kind
 
 
-def add_entries(entries, kind, sub_id=None, opts=None):
+def add_entries(entries, kind, sub_id=None, opts=None, filt=True):
     added = 0
-    if f := sub_id and q("SELECT title_inc, title_exc, min_min FROM subs WHERE id=?", (sub_id,)):
+    if f := filt and sub_id and q("SELECT title_inc, title_exc, min_min FROM subs WHERE id=?", (sub_id,)):
         entries = [e for e in entries if sub_match(f[0], e)]
     for e in entries:
         # 이미 수동으로 받은 영상이면 구독에 연결만 (RETURNING 은 실제 변경된 행만 나옴)
@@ -453,7 +453,9 @@ def recorded_replay(cid, v):
             opened = chzzk_api(f"/v3/videos/{no}").get("liveOpenDate")
         except Exception:
             return False
-        rec = [r for r in q("SELECT filepath, meta FROM jobs WHERE url=? AND live_open=? AND status='done'", (live_url, opened))]
+        rec = q("SELECT filepath, meta, status FROM jobs WHERE url=? AND live_open=? AND status IN ('done','queued','downloading')", (live_url, opened))
+        if any(r["status"] != "done" for r in rec):  # 녹화 · 압축이 아직 안 끝남 → 이번엔 받지 않고 다음 확인 때 다시 판단 (기억 안 함)
+            return True
         if not rec:
             REPLAY_SEEN[no] = False
             return False
@@ -914,7 +916,14 @@ def run_job(job, s, dl=None):
             hw = streamed  # 이미 압축됨
         elif need:
             # 호환성 프리셋은 목적이 H.264 변환이므로 용량이 커져도 결과 유지
-            path, hw = compress(orig, dur, s, jid, force=s["quality"] == "compat", tags=tags, live=is_live)
+            try:
+                path, hw = compress(orig, dur, s, jid, force=s["quality"] == "compat", tags=tags, live=is_live)
+            except RuntimeError as e:  # 압축만 실패 → 받은 원본으로 완료 (예전엔 '오류' → 점검이 다시 받고 또 실패하기를 반복)
+                if jid in CANCEL:
+                    raise
+                log(f"압축 실패 → 원본 그대로 저장 (나중에 압축 가능): {info.get('title')} — {str(e)[-120:]}")
+                meta["compress_error"] = str(e)[-300:]
+                path, hw = orig, "cpu"
             if is_live and path == orig:  # 압축본이 오히려 크면(이미 효율 좋은 방송) 화질 그대로 mp4 로만 정리 → 원본보다 커지지 않음
                 log(f"압축해도 작아지지 않아 원본 화질 유지: {info.get('title')}")
                 path, hw = compress(orig, dur, s | {"codec": "copy"}, jid, force=True, tags=tags)
@@ -1291,7 +1300,8 @@ def continue_live(job):
         return
     q("UPDATE jobs SET cut=? WHERE id=?", (time.time(), job["id"]))  # 방송 중에 녹화가 끝남 = 끊김 → 영상 정보에 표시
     if add_entries([{"id": f"{base}-p{n + 1}", "url": job["url"], "title": job["title"], "live_status": "is_live",
-                     "thumbnail": job["thumb"], "open_date": job.get("live_open")}], "streams", job["sub_id"], json.loads(job["opts"] or "{}")):
+                     "thumbnail": job["thumb"], "open_date": job.get("live_open")}], "streams", job["sub_id"], json.loads(job["opts"] or "{}"),
+                   filt=False):  # 이어 녹화는 필터 없이 (방송 중 제목이 제외 단어로 바뀌어도 나머지 방송까지)
         log(f"녹화 끊김 → 이어서 녹화 ({n + 1}번째 파일): {job['title']}")
 
 
@@ -1402,6 +1412,10 @@ def job_thread(job, s, dl):
         log(f"내부 오류: {job['title']} — {str(e)[:150]}")
     finally:
         dl.set()
+        try:  # 이 스레드가 쓴 로그인 쿠키 복사본 정리 (작업마다 새 스레드라 안 지우면 계정 정보 복사본이 계속 쌓임)
+            os.remove(f"/tmp/cookies-{threading.get_ident()}.txt")
+        except OSError:
+            pass
 
 
 def worker_step(slot, live):
@@ -1414,6 +1428,10 @@ def worker_step(slot, live):
         else:
             yt, cz = min(int(s["concurrency"]), MAX_PARALLEL), min(int(s["chzzk_concurrency"]), MAX_PARALLEL)
         yt = yt if yt_ok else 0
+        if not live:  # 압축 대기가 압축 개수의 2배를 넘으면 그 플랫폼은 새로 받지 않음 (생방송 녹화는 쉬지 않음)
+            waiting = [p for j, p in COMPRESSING.copy().items() if j not in COMP_RUN]
+            yt = 0 if waiting.count("youtube") >= 2 * int(s["compress_concurrency"]) else yt
+            cz = 0 if waiting.count("chzzk") >= 2 * int(s["chzzk_compress_concurrency"]) else cz
         job = claim(live, yt, cz)
         if not job:
             time.sleep(5)
