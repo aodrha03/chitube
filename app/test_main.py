@@ -367,11 +367,11 @@ assert main.bulk(main.Bulk(ids=[lj99], action="retry")) == {"done": 0}
 main.add_entries([{"id": "crashtest01", "url": "https://www.youtube.com/watch?v=crashtest01", "title": "t"}], "videos")
 main.q("UPDATE jobs SET pri=99 WHERE video_id='crashtest01'")
 main.q("INSERT OR REPLACE INTO settings VALUES('concurrency','20')")  # 앞 테스트가 남긴 '받는 중' 영상 때문에 동시 개수가 꽉 차지 않게
-real_run, main.run_job = main.run_job, lambda job, s: (_ for _ in ()).throw(RuntimeError("boom"))
-try:
-    main.worker_step(0, 0); raise AssertionError
-except RuntimeError:
-    pass
+real_run, main.run_job = main.run_job, lambda job, s, dl=None: (_ for _ in ()).throw(RuntimeError("boom"))
+cj, cev = main.claim(0, 20, 20), main.threading.Event()
+assert cj["video_id"] == "crashtest01"
+main.job_thread(cj, main.job_settings(cj), cev)  # 받기 스레드가 오류를 기록하고 작업 스레드를 깨움 (작업 스레드는 죽지 않고 다음 영상으로)
+assert cev.is_set()
 main.run_job = real_run
 assert main.q("SELECT status, error FROM jobs WHERE video_id='crashtest01'") == [{"status": "error", "error": "내부 오류: boom"}]
 # 재시작으로 남은 합치기 임시 파일 정리
@@ -588,4 +588,65 @@ real_api, main.chzzk_api = main.chzzk_api, lambda path: {"liveOpenDate": "2026-1
 assert main.recorded_replay(cz, {"videoNo": 501, "videoType": "REPLAY", "duration": 3100})
 assert not main.recorded_replay(cz, {"videoNo": 502, "videoType": "REPLAY", "duration": 7200})
 main.chzzk_api = real_api
+# 끝난 작업에 진행 표시 스레드가 늦게 남긴 '녹화 중' 상태는 무시 → 오류 항목도 취소 · 목록에서 삭제가 됨
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live,error) VALUES('stale000001','u','t','{}','error',1,'x')")
+sj = main.q("SELECT id FROM jobs WHERE video_id='stale000001'")[0]["id"]
+main.LIVE[sj] = {"status": "recording", "progress": 0}
+assert main.job(sj)["status"] == "error" and next(j for j in main.jobs()["jobs"] if j["id"] == sj)["status"] == "error"
+main.cancel(sj)
+assert sj not in main.CANCEL  # 끝난 작업엔 취소 신호를 남기지 않음 (예전엔 다시 받으면 바로 취소됐음)
+main.delete_job(sj)
+assert not main.q("SELECT 1 FROM jobs WHERE id=?", (sj,))
+main.LIVE.pop(sj, None)
+# 압축 단계는 다운로드 개수에서 빠짐 → 압축 중에도 다음 영상을 받음. 압축 개수는 플랫폼별
+main.q("UPDATE jobs SET status='done' WHERE status IN ('queued','downloading')")
+main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('compA000001','https://www.youtube.com/watch?v=compA000001','a','{}','downloading'),"
+       "('compB000001','https://www.youtube.com/watch?v=compB000001','b','{}','queued')")
+ca = main.q("SELECT id FROM jobs WHERE video_id='compA000001'")[0]["id"]
+assert main.claim(0, 1, 1) is None  # 유튜브 1개 받는 중 → 다음 거 안 가져감
+ev = main.threading.Event()
+main.compress_turn(ca, "youtube", ev)
+assert ev.is_set() and ca in main.COMP_RUN
+assert main.claim(0, 1, 1)["video_id"] == "compB000001"  # 앞의 것이 압축 단계라 다음 영상 시작
+cb = main.q("SELECT id FROM jobs WHERE video_id='compB000001'")[0]["id"]
+waiter = main.threading.Thread(target=main.compress_turn, args=(cb, "youtube"))
+waiter.start(); waiter.join(3)
+assert waiter.is_alive() and main.LIVE[cb].get("waiting")  # 압축 칸(1개)이 차서 기다림
+main.compress_done(ca); waiter.join(5)
+assert not waiter.is_alive() and cb in main.COMP_RUN
+main.compress_done(cb)
+for x in (ca, cb):
+    main.LIVE.pop(x, None)
+main.q("UPDATE jobs SET status='done' WHERE id IN (?, ?)", (ca, cb))
+# 압축 방식은 탭(플랫폼)별, 비우면 공통
+main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('chzzk_live_compress', 'off')")
+assert main.job_settings({"url": "https://chzzk.naver.com/live/x", "sub_id": None, "opts": "{}"})["live_compress"] == "off"
+assert main.job_settings({"url": "https://www.youtube.com/watch?v=x", "sub_id": None, "opts": "{}"})["live_compress"] == main.DEFAULTS["live_compress"]
+main.q("DELETE FROM settings WHERE key='chzzk_live_compress'")
+assert main.bad_setting("youtube_stream_compress", "2") and not main.bad_setting("youtube_stream_compress", "")
+# 치지직: 녹화 중(또는 방금 끝나 이어서 녹화할 참)인 채널은 방송 ID 가 바뀌어도 새 녹화를 또 만들지 않음
+rc = "d" * 32
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live) VALUES('chzzk-live-955501',?,'방송','{}','downloading',1)", (f"https://chzzk.naver.com/live/{rc}",))
+assert main.recording(rc) and not main.recording("e" * 32)
+main.q("UPDATE jobs SET status='done', finished=? WHERE video_id='chzzk-live-955501'", (main.time.time() - 120,))
+assert not main.recording(rc)
+# 나중에 압축: 완료된 원본(mkv) → 고른 화질의 mp4, 작아질 때만 바꿈
+td = tempfile.mkdtemp()
+main.subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25", "-t", "2", "-c:v", "libx264", "-qp", "0",
+                     f"{td}/big [recomp00001].mkv"], check=True)
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,filepath,meta) VALUES('recomp00001','https://www.youtube.com/watch?v=recomp00001','r','{}','done',?,'{}')",
+       (f"{td}/big [recomp00001].mkv",))
+rj = main.q("SELECT id FROM jobs WHERE video_id='recomp00001'")[0]["id"]
+assert main.recompress(main.Recompress(ids=[rj], quality="small"))["queued"] == 1
+for _ in range(60):
+    if rj not in main.RECOMP:
+        break
+    main.time.sleep(1)
+r = main.q("SELECT filepath, meta FROM jobs WHERE id=?", (rj,))[0]
+assert r["filepath"].endswith(".mp4") and os.path.isfile(r["filepath"]) and not os.path.exists(f"{td}/big [recomp00001].mkv")
+assert json.loads(r["meta"])["compressed"]["codec"] == "h265"
+try:
+    main.recompress(main.Recompress(ids=[rj], quality="original")); assert False
+except main.HTTPException:
+    pass
 print("queue page ok")

@@ -67,6 +67,8 @@ DEFAULTS = {
     "chzzk_concurrency": "2",   # 치지직 동시 다운로드 개수 (1~MAX_PARALLEL, 봇 차단 없음)
     "live_concurrency": "2",    # 유튜브 생방송 동시 녹화 개수 (1~MAX_PARALLEL)
     "chzzk_live_concurrency": "5",  # 치지직 생방송 동시 녹화 개수 (1~MAX_PARALLEL)
+    "compress_concurrency": "1",        # 유튜브 동시 압축 개수 (다 받은 뒤 압축 · 녹화 후 압축 · 나중에 압축). 다운로드 개수와 따로
+    "chzzk_compress_concurrency": "1",  # 치지직 동시 압축 개수
     "daily_limit": "100",       # 24시간 동안 최대 다운로드 개수
     "bot_cooldown_min": "60",   # 차단 신호 감지 시 전체 일시정지 시간
     "sleep_min": "15",          # 영상 사이 대기(초) - 요청 속도를 낮춰 차단 예방
@@ -89,6 +91,7 @@ DEFAULTS = {
     # 탭(플랫폼)별 기본값 - 비우면 위의 공통 설정. 저장 경로는 '/' 로 시작하면 서버 절대 경로
     "youtube_quality": "", "youtube_max_height": "", "youtube_folder": "YouTube",
     "chzzk_quality": "", "chzzk_max_height": "", "chzzk_folder": "Chzzk",
+    "youtube_stream_compress": "", "youtube_live_compress": "", "chzzk_stream_compress": "", "chzzk_live_compress": "",  # 압축 방식 (비우면 공통)
 }
 PLATFORMS = ("youtube", "chzzk")
 # (코덱, CRF, 원본 대비 최대 비트레이트 %) - 유튜브 원본(VP9/AV1)은 이미 효율이 좋아서 CRF 만으로는 오히려 커짐 → 상한 필수
@@ -103,6 +106,7 @@ QUALITY = {"h265_best": ("h265", "20", "100"), "high": ("h265", "22", "100"), "s
            # 압축 속도 fast(=SVT 8): 6 은 1080p 에서 메모리 2GB 넘게 써서 작은 NAS 에서 강제 종료됨
            "av1": ("av1", "46", "40", "fast")}
 OVERRIDES = ("quality", "max_height", "folder")  # 유튜버별/영상별로 덮어쓸 수 있는 항목
+TAB_ONLY = ("stream_compress", "live_compress")  # 탭(플랫폼)별로만 정하는 항목 (비우면 공통)
 VAAPI_DEV = "/dev/dri/renderD128"  # 인텔 퀵싱크 장치 (compose 에서 /dev/dri 연결)
 HW_ENC = {"nvenc": {"h264": "h264_nvenc", "h265": "hevc_nvenc", "av1": "av1_nvenc"},  # AV1 은 RTX 40 이상·인텔 Arc 이상만 (시작할 때 실제로 시험)
           "vaapi": {"h264": "h264_vaapi", "h265": "hevc_vaapi", "av1": "av1_vaapi"}}
@@ -166,7 +170,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.1.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.2.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -254,6 +258,7 @@ def job_settings(job):
     """공통 설정 → 탭(플랫폼) 기본값 → 채널(구독)별 → 영상별 순으로 덮어씀"""
     s, p = settings(), platform_of(job["url"])
     subs = q("SELECT quality, max_height, folder FROM subs WHERE id=?", (job["sub_id"],)) if job["sub_id"] else []
+    s = s | {k: s[f"{p}_{k}"] or s[k] for k in TAB_ONLY}
     return resolve(s, {k: s[f"{p}_{k}"] for k in OVERRIDES}, *subs, json.loads(job["opts"] or "{}"))
 
 
@@ -727,8 +732,9 @@ def compress(src, duration, s, jid, force=False, tags=None):
     return dst, hw
 
 
-def run_job(job, s):
+def run_job(job, s, dl=None):
     jid = job["id"]
+    CANCEL.discard(jid)  # 예전 취소 요청이 남아 있으면 다시 받기가 바로 취소됐음
     st = "recording" if job["live"] else "downloading"
     LIVE[jid] = {"status": st, "progress": 0}
     finished = []
@@ -787,6 +793,11 @@ def run_job(job, s):
             # 생방송은 yt-dlp 처럼 녹화 시작 시각을 붙여 방송마다 이름이 겹치지 않게
             raw["fname_title"] = plain_name(raw.get("title")) + (datetime.now().strftime(" %Y-%m-%d %H_%M") if is_live else "")
             raw["fname_channel"] = plain_name(raw.get("channel") or raw.get("uploader"))
+            base_vid, part = part_of(job["video_id"])
+            if is_live and cz and part > 1:  # 이어서 녹화한 파일은 1번째 파일과 같은 폴더 · 같은 이름 (방송 중 제목이 바뀌어도)
+                first = (q("SELECT filepath FROM jobs WHERE video_id=?", (base_vid,)) or [{}])[0].get("filepath")
+                if m := re.match(r"(\d{4})-(\d\d)-(\d\d) - (.+) \[", os.path.basename(first or "")):
+                    raw["upload_date"], raw["fname_title"] = "".join(m.groups()[:3]), m.group(4)
             season_dir = os.path.dirname(y.prepare_filename(raw))  # 치지직은 스트리머 폴더
             ep = "" if cz else episode_code(season_dir, raw["upload_date"], job["video_id"])
             y.params["outtmpl"]["default"] = outtmpl(ep, s["video_folder"] == "1", cz)
@@ -883,6 +894,8 @@ def run_job(job, s):
                 "synopsis": meta["description"], "description": meta["description"]} if is_live else None
         # yt-dlp 가 "이미 받은 파일"로 건너뛴 경우 = 이미 압축까지 끝난 파일 → 다시 압축하면 화질만 떨어짐
         fresh = info["requested_downloads"][0].get("__real_download", True)
+        if not streamed and s["codec"] != "none" and (fresh or is_live):
+            compress_turn(jid, platform_of(job["url"]), dl)  # 다운로드 칸 비우고 압축 칸 기다림
         if streamed and is_live:  # 녹화하면서 압축한 파일(MPEG-TS) → 재생 잘 되는 mp4 로 (영상은 복사라 빠름, 제목·날짜 태그)
             path, _ = compress(orig, dur, s | {"codec": "copy", "src_codec": s["codec"]}, jid, force=True, tags=tags)
             hw = streamed
@@ -956,7 +969,7 @@ def run_job(job, s):
             kept = keep_partial(job["video_id"], s) if job["live"] else None
             ended = kept and not live_now(job)
             if ended:  # 방송이 끝나서 끊긴 것 = 정상 종료 (치지직은 방송이 끝나면 재생 목록이 바로 사라져 ffmpeg 가 오류로 끝남)
-                kept = finish_kept(job, kept, s)
+                kept = finish_kept(job, kept, s, dl)
             elif kept:
                 frame_thumb(kept, probe_duration(kept))
             # 보존한 녹화의 오류 문구는 영상 정보 창에만 (확인한 오류로 → 카드·상태 화면에 빨간 오류로 안 뜸). 방송이 이어지면 새 파일로 이어서 녹화
@@ -966,6 +979,7 @@ def run_job(job, s):
                 f"녹화 끊김 (녹화분 보존): {job['title']} — {msg[:100]}" if kept else f"오류: {job['title']} — {msg[:100]}")
     finally:
         finished.append(True)
+        compress_done(jid)
         LIVE.pop(jid, None)
         CANCEL.discard(jid)
 
@@ -1185,7 +1199,36 @@ def keep_partial(vid, s, dry=False):
     return None
 
 
+COMPRESSING = {}  # 다 받고 압축 단계인 job → 플랫폼. 다운로드 개수에서 빠지고(다음 다운로드 시작) 압축 개수로 셈
+COMP_RUN = set()  # 그중 실제로 압축 중인 job
+COMP_LOCK = threading.Lock()
+
+
+def compress_turn(jid, p, dl=None):
+    """다운로드 칸을 비우고(dl 신호 → 작업 스레드가 다음 영상을 받기 시작) 이 플랫폼의 압축 칸이 날 때까지 기다림.
+    예전엔 압축이 끝나야 다음 다운로드가 시작됐음 (다운로드 개수 = 압축 개수)"""
+    COMPRESSING[jid] = p
+    if dl:
+        dl.set()
+    LIVE[jid] = {"status": "compressing", "progress": 0, "waiting": True}
+    while True:
+        with COMP_LOCK:
+            if sum(COMPRESSING.get(j) == p for j in COMP_RUN) < int(settings()[("chzzk_" if p == "chzzk" else "") + "compress_concurrency"]):
+                COMP_RUN.add(jid)
+                LIVE[jid] = {"status": "compressing", "progress": 0}
+                return
+        if jid in CANCEL:
+            raise yt_dlp.utils.DownloadCancelled("사용자가 취소함")
+        time.sleep(2)
+
+
+def compress_done(jid):
+    COMP_RUN.discard(jid)
+    COMPRESSING.pop(jid, None)
+
+
 STOPPED = set()  # 사용자가 "녹화 중지"한 job → 이어서 녹화 안 함
+MERGE_AFTER = set()  # 방송이 끝났는데 마지막 조각을 아직 압축 중 → 압축이 끝나면 자동 합치기
 RETRY_LIVE = set()  # 방송 시작 직후라 같은 작업을 다시 녹화하기로 한 job → 이어서 녹화(새 파일) 안 함
 
 
@@ -1200,9 +1243,9 @@ def live_now(job):
     """이 녹화 작업의 방송이 아직 켜져 있는지 (치지직: 같은 방송 ID, 유튜브: is_live)"""
     base = part_of(job["video_id"])[0]
     try:
-        if "chzzk.naver.com" in job["url"]:
+        if "chzzk.naver.com" in job["url"]:  # 채널이 방송 중이면 같은 방송으로 봄 (제목 등을 바꾸면 방송 ID 가 바뀔 수 있음)
             cid = re.search(r"/live/([0-9a-f]{32})", job["url"]).group(1)
-            return any(e["id"] == base for e in chzzk_live(cid))
+            return bool(chzzk_live(cid))
         with yt_dlp.YoutubeDL(base_opts(settings(), job["url"])) as y:
             return y.extract_info(job["url"], download=False, process=False).get("live_status") == "is_live"
     except Exception:
@@ -1224,8 +1267,11 @@ def continue_live(job):
     if n >= 50:
         return
     if not live_now(job):
-        if n > 1 and settings()["auto_merge"] == "1":  # 방송 끝 + 여러 조각 → 한 파일로
-            auto_merge(job)
+        if n > 1 and settings()["auto_merge"] == "1":  # 방송 끝 + 여러 조각 → 한 파일로 (이 조각을 압축 중이면 끝난 뒤에)
+            if (q("SELECT status FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("status") == "downloading":
+                MERGE_AFTER.add(job["id"])
+            else:
+                auto_merge(job)
         return
     q("UPDATE jobs SET cut=? WHERE id=?", (time.time(), job["id"]))  # 방송 중에 녹화가 끝남 = 끊김 → 영상 정보에 표시
     if add_entries([{"id": f"{base}-p{n + 1}", "url": job["url"], "title": job["title"], "live_status": "is_live",
@@ -1233,7 +1279,7 @@ def continue_live(job):
         log(f"녹화 끊김 → 이어서 녹화 ({n + 1}번째 파일): {job['title']}")
 
 
-def finish_kept(job, path, s):
+def finish_kept(job, path, s, dl=None):
     """방송이 끝나 오류로 멈춘 녹화(보존한 MPEG-TS) → 정상 종료와 같게 정리: 설정대로 압축(녹화하면서 이미 압축했으면 mp4 로만)
     · 썸네일 · 크기/길이 기록. 실패하면 보존한 파일 그대로 → 그 경로"""
     if path.endswith(".part"):  # 이름을 못 바꾼 채 보존한 파일(잠김)은 건드리지 않음
@@ -1244,6 +1290,7 @@ def finish_kept(job, path, s):
         want = {"h264": "h264", "h265": "hevc", "av1": "av1"}.get(s["codec"])
         tags = {"title": job["title"]}
         if want and vc != want:
+            compress_turn(job["id"], platform_of(job["url"]), dl)
             out, _ = compress(path, dur, s, job["id"], tags=tags)
         else:
             out, _ = compress(path, dur, s | {"codec": "copy", "src_codec": "h265" if vc == "hevc" else vc}, job["id"], force=True, tags=tags)
@@ -1275,7 +1322,8 @@ def claim(live, yt, cz):
     """대기 중인 작업 하나 가져오기. yt/cz = 유튜브/치지직 각각 동시에 돌릴 수 있는 최대 개수 (0 이면 그 플랫폼은 안 가져옴)
     개수 확인과 가져오기가 한 문장이라 여러 스레드가 동시에 불러도 한도를 넘지 않음"""
     cz_sql = "url LIKE '%chzzk.naver.com%'"
-    running = "(SELECT COUNT(*) FROM jobs WHERE status='downloading' AND COALESCE(live,0)=? AND {})"
+    # 압축 단계(COMPRESSING)는 다운로드 개수에서 뺌 → 압축 중에도 다음 영상을 받음
+    running = f"(SELECT COUNT(*) FROM jobs WHERE status='downloading' AND COALESCE(live,0)=? AND id NOT IN ({','.join(map(str, COMPRESSING)) or 0}) AND {{}})"
     r = q(f"""UPDATE jobs SET status='downloading', error=NULL, err_seen=0, started={time.time()}, cut=NULL WHERE id=(
              SELECT id FROM jobs WHERE status='queued' AND COALESCE(live,0)=?
                AND (({cz_sql} AND {running.format(cz_sql)} < ?) OR (NOT {cz_sql} AND {running.format('NOT ' + cz_sql)} < ?))
@@ -1314,6 +1362,20 @@ def worker(slot, live=0):
     forever(f"{'라이브 녹화' if live else '다운로드'} {slot + 1}", lambda: worker_step(slot, live))
 
 
+def job_thread(job, s, dl):
+    try:
+        run_job(job, s, dl)
+        if job["id"] in MERGE_AFTER:
+            MERGE_AFTER.discard(job["id"])
+            auto_merge(job)
+    except Exception as e:  # 예상 못 한 오류로 이 영상이 '다운로드 중'으로 멈춰 있지 않게
+        q("UPDATE jobs SET status='error', error=?, finished=? WHERE id=? AND status='downloading'",
+          (f"내부 오류: {e}"[:500], time.time(), job["id"]))
+        log(f"내부 오류: {job['title']} — {str(e)[:150]}")
+    finally:
+        dl.set()
+
+
 def worker_step(slot, live):
     while True:
         s = settings()
@@ -1334,8 +1396,11 @@ def worker_step(slot, live):
                 q("UPDATE jobs SET status='queued' WHERE id=?", (job["id"],))
                 time.sleep(60)
                 continue
-            run_job(job, s)
-            if live:
+            # 받기는 따로 스레드에서. 다 받고 압축 단계로 넘어가면(또는 끝나면) dl 신호 → 이 스레드는 다음 영상을 받으러 감
+            dl = threading.Event()
+            threading.Thread(target=job_thread, args=(job, s, dl), daemon=True).start()
+            dl.wait()
+            if live:  # 녹화가 끝나면 압축을 기다리지 않고 바로 이어서 녹화
                 continue_live(job)
         except Exception as e:  # 예상 못 한 오류로 스레드가 다시 시작돼도 이 영상이 '다운로드 중'으로 멈춰 있지 않게
             q("UPDATE jobs SET status='error', error=?, finished=? WHERE id=? AND status='downloading'",
@@ -1486,11 +1551,18 @@ def scheduler():
     forever("구독 확인", scheduler_step)
 
 
+def recording(cid):
+    """이 채널을 녹화 중(대기 포함)이거나 방금(1분 안) 녹화가 끝나 이어서 녹화할 참이면 True → 새 녹화를 또 만들지 않음.
+    예전엔 방송 중 제목을 바꾸는 등으로 방송 ID 가 바뀌면 같은 방송을 새 녹화(새 폴더)로 또 받았음"""
+    return bool(q("""SELECT 1 FROM jobs WHERE url=? AND live=1 AND (status IN ('queued','downloading') OR finished > ?) LIMIT 1""",
+                  (f"https://chzzk.naver.com/live/{cid}", time.time() - 60)))
+
+
 def chzzk_watch_step():
     """구독한 치지직 채널(생방송 체크)의 방송 시작을 10초마다 확인 → 바로 녹화.
     방송 상태 API 하나만 부르는 가벼운 요청이라 유튜브 같은 차단 걱정 없음"""
     for sub in q("SELECT id, url, name FROM subs WHERE enabled=1 AND url LIKE '%chzzk.naver.com%' AND kinds LIKE '%streams%'"):
-        if (m := CHZZK_CH_RE.match(sub["url"].strip())) and add_entries(chzzk_live(m.group(1)), "streams", sub["id"]):
+        if (m := CHZZK_CH_RE.match(sub["url"].strip())) and not recording(m.group(1)) and add_entries(chzzk_live(m.group(1)), "streams", sub["id"]):
             log(f"치지직 방송 시작 → 녹화: {sub['name']}")
     time.sleep(CHZZK_LIVE_SEC)
 
@@ -1642,7 +1714,7 @@ def jobs(sub: int | None = None, platform: str | None = None, status: str | None
     order = "COALESCE(pri,0) DESC, id" if status == "queued" else SORTS.get(sort, "id DESC")  # 대기 목록 = claim 이 가져가는 순서
     rows = q(f"SELECT {cols} FROM jobs WHERE {base} ORDER BY {order} LIMIT ? OFFSET ?", args + [per, (max(page, 1) - 1) * per])
     for r in rows:
-        r.update(LIVE.get(r["id"], {}))
+        r.update(live_state(r))
     return {"jobs": rows, "counts": counts, "total": total, "wait": max(0, int(STATE["next_at"] - time.time())),
             # 2초마다 오는 목록 응답에 실어 봇 감지 경고가 바로 뜨게
             "paused_until": STATE["paused_until"] if paused() else 0, "pause_reason": STATE["pause_reason"]}
@@ -1687,7 +1759,15 @@ def job(jid: int):
         base = part_of(r[0]["video_id"])[0]
         r[0]["parts"] = [p for p in q("SELECT id, video_id, status, started, cut FROM jobs WHERE video_id=? OR video_id LIKE ? ORDER BY id",
                                       (base, base + "-p%")) if part_of(p["video_id"])[0] == base]
-    return r[0] | LIVE.get(jid, {})
+    return r[0] | live_state(r[0])
+
+
+def live_state(row):
+    """화면에 덮어 보일 실시간 상태. 받는 중(또는 나중에 압축 중)인 것만 — 예전엔 끝난 작업에 진행 표시 스레드가 늦게 남긴
+    '녹화 중' 상태가 그대로 보여, 오류 항목이 녹화 중으로 보이고 취소 · 목록에서 삭제가 안 됐음"""
+    if row["id"] in RECOMP:
+        return LIVE.get(row["id"], {}) | {"recomp": True}
+    return LIVE.get(row["id"], {}) if row["status"] == "downloading" else {}
 
 
 def done_file(jid):
@@ -1751,6 +1831,54 @@ def probe_streams(p):
 
 
 MERGING = set()  # 합치는 중인 녹화 (1번째 조각 id) → 두 번 누르기 방지
+
+
+RECOMP = set()  # 나중에 압축 중인 완료 영상 (화면에 압축 진행률 표시)
+
+
+class Recompress(BaseModel):
+    ids: list[int]
+    quality: str
+
+
+@app.post("/api/jobs/compress")
+def recompress(body: Recompress):
+    """다 받은 영상(원본 그대로 받은 것 · 녹화 · 다시보기)을 나중에 압축 → 압축 칸이 나는 대로 차례로. 작아질 때만 바꿈"""
+    if body.quality not in QUALITY:
+        raise HTTPException(400, "압축할 화질을 고르세요")
+    rows = [r for r in q(f"SELECT * FROM jobs WHERE status='done' AND id IN ({','.join('?' * len(body.ids)) or 'NULL'})", body.ids)
+            if r["filepath"] and os.path.isfile(r["filepath"]) and r["id"] not in RECOMP]
+    for r in rows:
+        RECOMP.add(r["id"])
+        LIVE[r["id"]] = {"status": "compressing", "progress": 0, "waiting": True}
+        threading.Thread(target=recompress_one, args=(r, body.quality), daemon=True).start()
+    if rows:
+        log(f"나중에 압축 {len(rows)}개 시작 ({body.quality})")
+    return {"queued": len(rows)}
+
+
+def recompress_one(job, quality):
+    jid, src = job["id"], job["filepath"]
+    try:
+        s = resolve(job_settings(job), {"quality": quality})
+        compress_turn(jid, platform_of(job["url"]))
+        size0 = os.path.getsize(src)
+        out, hw = compress(src, probe_duration(src), s, jid)
+        if out == src:
+            log(f"압축해도 작아지지 않아 그대로 둠: {job['title']}")
+            return
+        meta = json.loads((q("SELECT meta FROM jobs WHERE id=?", (jid,)) or [{}])[0].get("meta") or "{}")
+        meta |= {"size": os.path.getsize(out), "orig_size": meta.get("orig_size") or size0, "quality": quality,
+                 "compressed": {"codec": s["codec"], "crf": s["crf"], "preset": s["preset"], "encoder": HW_NAME[hw]}}
+        q("UPDATE jobs SET filepath=?, meta=? WHERE id=?", (out, json.dumps(meta, ensure_ascii=False), jid))
+        log(f"나중에 압축 완료: {job['title']} ({size0 / 1e9:.2f}GB → {meta['size'] / 1e9:.2f}GB)")
+    except Exception as e:
+        log(f"나중에 압축 {'취소' if jid in CANCEL else '실패'} (원본 그대로): {job['title']} — {str(e)[-120:]}")
+    finally:
+        compress_done(jid)
+        RECOMP.discard(jid)
+        LIVE.pop(jid, None)
+        CANCEL.discard(jid)
 
 
 @app.post("/api/jobs/{jid}/merge")
@@ -1872,7 +2000,10 @@ def retry(jid: int):  # 완료된 영상의 "다시 받기"도 여기로 옴 →
 
 @app.post("/api/jobs/{jid}/cancel")
 def cancel(jid: int):  # 라이브 녹화는 중지 후 저장, 다운로드/압축 중이면 중단, 대기 중이면 대기열에서 제외
-    j = q("SELECT video_id, title FROM jobs WHERE id=?", (jid,))
+    j = q("SELECT video_id, title, status FROM jobs WHERE id=?", (jid,))
+    if j and j[0]["status"] != "downloading" and jid not in RECOMP:  # 끝난 작업: 대기 중이면 빼기만 (남은 진행 상태로 취소 신호가 남지 않게)
+        q("UPDATE jobs SET status='cancelled', error=NULL WHERE id=? AND status='queued'", (jid,))
+        return
     if j and LIVE.get(jid, {}).get("status") == "recording" and stop_recording(j[0]["video_id"]):
         STOPPED.add(jid)  # 직접 멈춘 녹화는 이어서 녹화하지 않음
         log(f"녹화 중지 → 저장: {j[0]['title']}")
@@ -2068,6 +2199,7 @@ def status():
         "chzzk_concurrency": min(int(s["chzzk_concurrency"]), MAX_PARALLEL),
         "live_concurrency": min(int(s["live_concurrency"]), MAX_PARALLEL),
         "chzzk_live_concurrency": min(int(s["chzzk_live_concurrency"]), MAX_PARALLEL),
+        "compress_concurrency": int(s["compress_concurrency"]), "chzzk_compress_concurrency": int(s["chzzk_compress_concurrency"]),
         "disks": disks, "versions": VERSIONS, "cookies": {p: os.path.exists(f) for p, f in COOKIE_FILES.items()},
         "app_version": APP_VERSION, "updates": STATE.get("updates"),
         "hw": {HW_NAME[h]: sorted(c) for h, c in HW.items()},
@@ -2371,6 +2503,7 @@ def get_settings():
 # crf: H.264/H.265 는 51 까지, AV1 은 63 까지
 NUMERIC = {"max_height": (0, 4320), "crf": (0, 63), "ratio": (10, 200), "concurrency": (1, MAX_PARALLEL), "chzzk_concurrency": (1, MAX_PARALLEL),
            "live_concurrency": (1, MAX_PARALLEL), "chzzk_live_concurrency": (1, MAX_PARALLEL),
+           "compress_concurrency": (1, MAX_PARALLEL), "chzzk_compress_concurrency": (1, MAX_PARALLEL),
            "daily_limit": (1, 10000), "bot_cooldown_min": (1, 1440), "sleep_min": (0, 3600), "sleep_max": (0, 3600),
            "sleep_requests": (0, 60), "min_free_gb": (0, 100000), "login_refresh_days": (0, 365), "check_interval_min": (MIN_INTERVAL, 10080), "sub_fetch_limit": (1, 200)}
 CHOICES = {"quality": {*QUALITY, "original", "custom"}, "codec": {"none", "h264", "h265", "av1"},
@@ -2401,7 +2534,7 @@ def bad_setting(k, v):
         except ValueError as e:
             return str(e)
     p, _, base = k.partition("_")
-    if p in PLATFORMS and base in OVERRIDES:  # 탭별 기본값: 비우면 공통 설정, 아니면 공통 항목과 같은 규칙
+    if p in PLATFORMS and base in OVERRIDES + TAB_ONLY:  # 탭별 기본값: 비우면 공통 설정, 아니면 공통 항목과 같은 규칙
         return bad_setting(base, v) if v else None
     return None
 
