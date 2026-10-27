@@ -707,4 +707,34 @@ main.q("INSERT INTO jobs(video_id,url,title,opts,live,status,live_open) VALUES('
 real_api, main.chzzk_api = main.chzzk_api, lambda path: {"liveOpenDate": "2026-10-26 20:00:00"}
 assert main.recorded_replay(cz, {"videoNo": 601, "videoType": "REPLAY", "duration": 3000}) and "601" not in main.REPLAY_SEEN
 main.chzzk_api = real_api
+# 정수 설정에 소수가 들어가면 거부 (쓰는 곳의 int() 가 실패해 작업 스레드가 멈췄음). 대기 시간 · 여유 공간은 소수 허용
+assert main.bad_setting("concurrency", "1.5") and main.bad_setting("chzzk_compress_concurrency", "2.0")
+assert not main.bad_setting("concurrency", "3") and not main.bad_setting("sleep_requests", "1.5") and not main.bad_setting("min_free_gb", "0.5")
+# 다 받고 압축을 기다리던 중 취소 → 받은 원본으로 완료 (버리지 않음)
+cd_ = tempfile.mkdtemp()
+main.subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10", "-t", "2", f"{cd_}/v [cancel00001].mkv"], check=True)
+class FakeDL:
+    def __init__(self, o): self.params = {"outtmpl": {"default": ""}}
+    def __enter__(self): return self
+    def __exit__(self, *a): pass
+    def extract_info(self, *a, **k): return {"title": "취소 시험", "upload_date": "20261027"}
+    def prepare_filename(self, raw): return f"{cd_}/v [cancel00001].mkv"
+    def add_post_processor(self, *a, **k): pass
+    def process_ie_result(self, raw, download=True):
+        return {"title": "취소 시험", "duration": 2, "requested_downloads": [{"filepath": f"{cd_}/v [cancel00001].mkv"}]}
+real_dl, main.yt_dlp.YoutubeDL = main.yt_dlp.YoutubeDL, FakeDL
+main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('youtube_stream_compress', '0')")
+main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('cancel00001','https://www.youtube.com/watch?v=cancel00001','t','{\"quality\": \"small\"}','downloading')")
+xj = main.q("SELECT * FROM jobs WHERE video_id='cancel00001'")[0]
+main.COMPRESSING[-5], _ = "youtube", main.COMP_RUN.add(-5)  # 압축 칸을 채워 둬서 기다리게
+ev = main.threading.Event()
+th = main.threading.Thread(target=main.run_job, args=(xj, main.job_settings(xj), ev))
+th.start(); ev.wait(20)
+main.time.sleep(1); assert main.job(xj["id"])["status"] == "compressing"
+main.cancel(xj["id"]); th.join(20)
+main.compress_done(-5)
+main.yt_dlp.YoutubeDL = real_dl
+main.q("DELETE FROM settings WHERE key='youtube_stream_compress'")
+r = main.q("SELECT status, filepath FROM jobs WHERE id=?", (xj["id"],))[0]
+assert r == {"status": "done", "filepath": f"{cd_}/v [cancel00001].mkv"} and os.path.isfile(r["filepath"])
 print("queue page ok")

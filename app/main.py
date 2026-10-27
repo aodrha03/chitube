@@ -170,7 +170,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.2.3"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.2.4"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -846,6 +846,7 @@ def run_job(job, s, dl=None):
             finally:
                 stop.append(True)
 
+    orig = info = meta = None
     try:
         # 받으면서 압축: 설정한 장치 → (실패하면) CPU → (그래도 실패하면) 예전처럼 다 받은 뒤 압축
         hw0 = encoder_for(s)
@@ -909,6 +910,7 @@ def run_job(job, s, dl=None):
             if job["live"]:  # 재시작으로 끊겨도 녹화본을 찾을 수 있게 (lifespan)
                 q("UPDATE jobs SET filepath=? WHERE id=?", (orig, jid))
             compress_turn(jid, platform_of(job["url"]), dl)  # 다운로드 칸 비우고 압축 칸 기다림
+        encoded = bool(streamed)  # 실제로 압축했는지 (mp4 로 정리만 한 건 압축 아님)
         if streamed and is_live:  # 녹화하면서 압축한 파일(MPEG-TS) → 재생 잘 되는 mp4 로 (영상은 복사라 빠름, 제목·날짜 태그)
             path, _ = compress(orig, dur, s | {"codec": "copy", "src_codec": s["codec"]}, jid, force=True, tags=tags)
             hw = streamed
@@ -924,6 +926,7 @@ def run_job(job, s, dl=None):
                 log(f"압축 실패 → 원본 그대로 저장 (나중에 압축 가능): {info.get('title')} — {str(e)[-120:]}")
                 meta["compress_error"] = str(e)[-300:]
                 path, hw = orig, "cpu"
+            encoded = path != orig
             if is_live and path == orig:  # 압축본이 오히려 크면(이미 효율 좋은 방송) 화질 그대로 mp4 로만 정리 → 원본보다 커지지 않음
                 log(f"압축해도 작아지지 않아 원본 화질 유지: {info.get('title')}")
                 path, hw = compress(orig, dur, s | {"codec": "copy"}, jid, force=True, tags=tags)
@@ -943,7 +946,7 @@ def run_job(job, s, dl=None):
                 step()
             except Exception as e:
                 log(f"{what} 저장 실패: {str(e)[:80]}")
-        if meta["size"] != meta["orig_size"]:
+        if encoded:
             meta["compressed"] = {"codec": s["codec"], "crf": s["crf"], "preset": s["preset"], "encoder": HW_NAME[hw]}
         for f in keep_files(job["filepath"]):  # 다시 받기 성공 → 비켜 둔 예전 파일 정리
             os.remove(f)
@@ -961,6 +964,13 @@ def run_job(job, s, dl=None):
             q("UPDATE jobs SET status='done', progress=100, filepath=?, error=?, finished=? WHERE id=?",
               (old, None if jid in CANCEL else f"다시 받기 실패 → 기존 파일 그대로 보존: {msg}"[:500], time.time(), jid))
             log(f"다시 받기 {'취소' if jid in CANCEL else '실패'} → 기존 파일 그대로 보존: {job['title']}")
+        elif jid in CANCEL and jid in COMPRESSING and orig and os.path.isfile(orig):
+            # 다 받고 압축하던 중 취소 → 압축만 멈추고 받은 원본으로 완료 (받기는 끝났으니 버리지 않음)
+            for f in keep_files(job["filepath"]):
+                os.remove(f)
+            q("UPDATE jobs SET status='done', progress=100, filepath=?, title=?, meta=?, error=NULL, finished=? WHERE id=?",
+              (orig, info.get("title"), json.dumps(meta | {"size": os.path.getsize(orig)}, ensure_ascii=False), time.time(), jid))
+            log(f"압축 취소 → 받은 원본 그대로 저장: {job['title']}")
         elif jid in CANCEL:
             q("UPDATE jobs SET status='cancelled', error=NULL WHERE id=?", (jid,))
             cleanup_partial(job["video_id"], s)
@@ -2571,8 +2581,8 @@ def bad_setting(k, v):
     """잘못된 값이면 이유, 정상이면 None. 숫자 칸이 비거나 글자가 들어가면 작업 스레드가 int() 에서 멈췄음."""
     if k in NUMERIC:
         lo, hi = NUMERIC[k]
-        try:
-            ok = lo <= float(v) <= hi
+        try:  # 소수를 쓰는 건 대기 시간 · 여유 공간뿐, 나머지는 정수만 (예전엔 '1.5' 가 통과돼 int() 에서 멈췄음)
+            ok = lo <= float(v) <= hi and (k in ("sleep_min", "sleep_max", "sleep_requests", "min_free_gb") or v.isdigit())
         except ValueError:
             ok = False
         return None if ok else f"{lo}~{hi} 사이 숫자"
