@@ -6,6 +6,12 @@
 #   포테이너:          Stacks → Add stack → Repository(또는 Upload) → 이 파일 사용
 #
 # 기본값만으로 바로 돌아갑니다. NAS 는 파일 권한 때문에 .env 에서 PUID/PGID 만 맞춰주세요.
+#
+# ChiTube — one file for Linux / macOS / Windows (WSL) / Synology Container Manager / Portainer.
+#   Linux/macOS/Windows: docker compose up -d --build · Synology: Container Manager → Project → Create (this folder)
+#   Works with the defaults. Settings (save folder, owner) go in .env — see .env.example.
+#   Hardware encoding is detected automatically (Intel Quick Sync, NVIDIA with the Container Toolkit; CPU otherwise).
+#   Keep "restart: unless-stopped" — the web UI's "Restart to update" relies on it.
 name: chitube
 services:
   chitube:

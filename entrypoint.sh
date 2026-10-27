@@ -17,6 +17,10 @@ for d in /config /downloads; do
     echo "    - 리눅스/시놀로지(SSH): sudo chown -R $PUID:$PGID <호스트의 그 폴더>"
     echo "    - 시놀로지 DSM: 공유폴더 권한에서 그 계정에 '읽기/쓰기' 허용"
     echo "    - 빠른 확인: .env 에서 PUID=0, PGID=0 으로 두고 다시 실행"
+    echo " [Permission error] Cannot write to '$d' (PUID=$PUID PGID=$PGID)."
+    echo "  Make the folder writable for that account on the host: sudo chown -R $PUID:$PGID <that folder>,"
+    echo "  or on Synology allow Read/Write for the account in shared folder permissions,"
+    echo "  or quick check: set PUID=0 and PGID=0 in .env and start again."
     echo "============================================================"
     exit 1
   fi

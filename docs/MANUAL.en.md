@@ -25,6 +25,8 @@
 
 ## 1. Installation
 
+> Short per-platform guides: [Synology](install/synology.en.md) · [Linux · macOS](install/linux.en.md) · [Portainer](install/portainer.en.md) · [Windows](install/windows.en.md)
+
 On every platform, put the **whole project folder** (`Dockerfile`, `entrypoint.sh`, `docker-compose.yml`, `app/`, and the empty `config/` and `downloads/` folders) on the server and run it with `docker-compose.yml`. It works with the defaults, so you don't need to edit any file.
 
 When it's running, open `http://<server>:8945` in your browser.

@@ -1,5 +1,7 @@
 # 포테이너 방법 B: 서버에서 `docker build -t chitube:latest .` 로 이미지를 만든 뒤 Stacks → Web editor 에 붙여 넣기
 # volumes 의 왼쪽 경로를 서버 실제 경로로 바꾸세요.
+# Portainer option B: build the image on the server with `docker build -t chitube:latest .`, then paste this into Stacks → Web editor.
+# Change the left side of each volumes path to a real path on your server.
 services:
   chitube:
     image: chitube:latest

@@ -1,5 +1,7 @@
 # 치튜브 설치 — 포테이너 (Portainer)
 
+> **한국어** · [English](portainer.en.md)
+
 > 이미지를 빌드해야 하므로 웹 편집기(Web editor)에 compose 만 붙여 넣는 방법은 안 됩니다. 아래 둘 중 하나를 쓰세요.
 
 ## 방법 A — Repository (가장 쉬움, 권장)

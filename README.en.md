@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.6.0-ff0033" alt="v1.6.0"></a>
+  <a href="CHANGELOG.en.md"><img src="https://img.shields.io/badge/release-v1.6.1-ff0033" alt="v1.6.1"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
@@ -23,7 +23,7 @@
   <a href="#-features">Features</a> ·
   <a href="docs/MANUAL.en.md">User manual</a> ·
   <a href="#-faq">FAQ</a> ·
-  <a href="CHANGELOG.md">Changelog (Korean)</a>
+  <a href="CHANGELOG.en.md">Changelog</a>
 </p>
 
 ---
@@ -32,7 +32,7 @@
   <img src="docs/images/english.png" alt="ChiTube web UI in English" width="90%">
 </p>
 
-> The web UI can be switched to **English** with the button at the top right. See the **[user manual](docs/MANUAL.en.md)** for details (the short per-platform install guides in the zips are in Korean).
+> The web UI can be switched to **English** with the button at the top right. See the **[user manual](docs/MANUAL.en.md)** for details (per-platform install guides are linked below).
 
 ## 🚀 Quick start
 
@@ -53,14 +53,14 @@ Open **`http://<server>:8945`** in your browser. It works with the default setti
 
 ### 📦 Install packages
 
-Get the file for your platform from [Releases](https://github.com/aodrha03/chitube/releases/latest). Each zip contains a short install guide (`설치방법.md`, Korean) — the same steps are in the [user manual](docs/MANUAL.en.md#1-installation).
+Get the file for your platform from [Releases](https://github.com/aodrha03/chitube/releases/latest). Each zip contains a short install guide in Korean (`설치방법.md`) and English (`INSTALL.en.md`).
 
 | Platform | File | Notes |
 |---|---|---|
-| Synology (DSM 7.2+) | `chitube-<ver>-synology.zip` | Container Manager → Project |
-| Linux · macOS | `chitube-<ver>-linux.zip` (or `git clone`) | `docker compose up -d --build` |
-| Portainer | Stack from this repository URL (or `chitube-<ver>-portainer.zip`) | Build method: Repository |
-| Windows | `chitube-<ver>-windows.zip` — double-click **`시작.bat`** (start) | Needs Docker Desktop |
+| Synology (DSM 7.2+) | `chitube-<ver>-synology.zip` | [Synology install](docs/install/synology.en.md) |
+| Linux · macOS | `chitube-<ver>-linux.zip` (or `git clone`) | [Linux install](docs/install/linux.en.md) |
+| Portainer | Stack from this repository URL (or `chitube-<ver>-portainer.zip`) | [Portainer install](docs/install/portainer.en.md) |
+| Windows | `chitube-<ver>-windows.zip` — double-click **`시작.bat`** (start) | [Windows install](docs/install/windows.en.md) |
 
 ## ✨ Features
 
