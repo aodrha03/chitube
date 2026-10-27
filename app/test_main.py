@@ -777,4 +777,10 @@ main.yt_dlp.YoutubeDL, main.live_now = real_dl, real_ln
 os.remove(ckf)
 r = main.q("SELECT status, filepath FROM jobs WHERE id=?", (kj3["id"],))[0]
 assert len(tries_) == 1 and r["status"] == "done" and r["filepath"] == lpart[:-5] and os.path.isfile(lpart[:-5])
+# 그래픽카드로 녹화하면서 압축하는 생방송은 정한 개수까지만, 넘으면 원본 녹화 → 끝난 뒤 압축
+assert main.reserve_gpu(-21, "nvenc", 2) and main.reserve_gpu(-22, "nvenc", 2) and not main.reserve_gpu(-23, "nvenc", 2)
+main.GPU_LIVE.pop(-21); assert main.reserve_gpu(-23, "nvenc", 2)
+for x in (-22, -23):
+    main.GPU_LIVE.pop(x)
+assert main.bad_setting("gpu_live_max", "0") and not main.bad_setting("gpu_live_max", "3")
 print("queue page ok")

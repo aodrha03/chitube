@@ -67,6 +67,7 @@ DEFAULTS = {
     "chzzk_concurrency": "2",   # 치지직 동시 다운로드 개수 (1~MAX_PARALLEL, 봇 차단 없음)
     "live_concurrency": "2",    # 유튜브 생방송 동시 녹화 개수 (1~MAX_PARALLEL)
     "chzzk_live_concurrency": "5",  # 치지직 생방송 동시 녹화 개수 (1~MAX_PARALLEL)
+    "gpu_live_max": "3",        # 그래픽카드로 동시에 녹화하면서 압축할 생방송 최대 개수. 넘는 방송은 원본으로 녹화 → 끝난 뒤 압축
     "compress_concurrency": "1",        # 유튜브 동시 압축 개수 (다 받은 뒤 압축 · 녹화 후 압축 · 나중에 압축). 다운로드 개수와 따로
     "chzzk_compress_concurrency": "1",  # 치지직 동시 압축 개수
     "daily_limit": "100",       # 24시간 동안 최대 다운로드 개수
@@ -170,7 +171,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.2.6"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.3.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -718,7 +719,7 @@ def compress(src, duration, s, jid, force=False, tags=None, live=False):
     # 전체 평균 비트레이트에서 오디오 몫을 빼서 원본 영상 비트레이트 추정
     vbit = max(os.path.getsize(src) * 8 / duration - yt_dlp.utils.parse_bytes(s["audio_bitrate"]), 0) if duration else 0
     hw = "cpu" if s["codec"] == "copy" else encoder_for(s)
-    if hw != "cpu" and not live and gpu_live(hw):
+    if hw != "cpu" and gpu_live(hw):  # 끝난 녹화를 압축할 때도 (실시간이 아니라 기다려도 됨)
         # 생방송 녹화는 실시간이라 압축기를 다른 작업과 나눠 쓰면 못 따라가고 멈춤 (실측: RTX A400 압축기 100% → 녹화 멈춤)
         # → 녹화 중엔 다 받은 영상 압축을 CPU 로 (낮은 우선순위라 녹화 · 화면에 영향 적음)
         hw = "cpu"
@@ -747,6 +748,16 @@ GPU_LIVE = {}  # 그래픽카드로 녹화하면서 압축 중인 생방송 job 
 
 def gpu_live(hw):
     return hw in GPU_LIVE.values()
+
+
+def reserve_gpu(jid, hw, most):
+    """그래픽카드로 녹화하면서 압축할 자리 잡기. 이미 most 개면 False → 원본으로 녹화하고 끝난 뒤 압축
+    (압축기 하나를 여러 생방송이 나눠 쓰면 다 같이 실시간을 못 따라가 멈춤)"""
+    with COMP_LOCK:
+        if len(GPU_LIVE) >= most:
+            return False
+        GPU_LIVE[jid] = hw
+        return True
 
 
 def run_job(job, s, dl=None):
@@ -869,6 +880,9 @@ def run_job(job, s, dl=None):
         if job["live"]:  # 녹화하면서 압축: 그래픽카드가 있을 때만 (CPU 만으론 실시간을 못 따라가면 녹화가 끊김) → 안 되면 CPU / 녹화 후 압축
             lc = s["live_compress"]
             tries = ([hw0] + (["cpu"] if lc == "gpu_cpu" else [])) if s["codec"] != "none" and lc != "off" and hw0 != "cpu" else []
+            if tries and not reserve_gpu(jid, hw0, int(s["gpu_live_max"])):
+                log(f"그래픽카드로 녹화하면서 압축 중인 생방송이 {s['gpu_live_max']}개라 원본으로 녹화 → 끝난 뒤 압축: {job['title']}")
+                tries = []
         else:
             tries = ([hw0] + (["cpu"] if hw0 != "cpu" else [])) if s["codec"] != "none" and s["stream_compress"] == "1" else []
         def attempt(fmt, cookies):
@@ -1027,6 +1041,7 @@ def run_job(job, s, dl=None):
                 f"녹화 끊김 (녹화분 보존): {job['title']} — {msg[:100]}" if kept else f"오류: {job['title']} — {msg[:100]}")
     finally:
         finished.append(True)
+        GPU_LIVE.pop(jid, None)
         compress_done(jid)
         LIVE.pop(jid, None)
         CANCEL.discard(jid)
@@ -2595,7 +2610,7 @@ def get_settings():
 # crf: H.264/H.265 는 51 까지, AV1 은 63 까지
 NUMERIC = {"max_height": (0, 4320), "crf": (0, 63), "ratio": (10, 200), "concurrency": (1, MAX_PARALLEL), "chzzk_concurrency": (1, MAX_PARALLEL),
            "live_concurrency": (1, MAX_PARALLEL), "chzzk_live_concurrency": (1, MAX_PARALLEL),
-           "compress_concurrency": (1, MAX_PARALLEL), "chzzk_compress_concurrency": (1, MAX_PARALLEL),
+           "compress_concurrency": (1, MAX_PARALLEL), "gpu_live_max": (1, MAX_PARALLEL), "chzzk_compress_concurrency": (1, MAX_PARALLEL),
            "daily_limit": (1, 10000), "bot_cooldown_min": (1, 1440), "sleep_min": (0, 3600), "sleep_max": (0, 3600),
            "sleep_requests": (0, 60), "min_free_gb": (0, 100000), "login_refresh_days": (0, 365), "check_interval_min": (MIN_INTERVAL, 10080), "sub_fetch_limit": (1, 200)}
 CHOICES = {"quality": {*QUALITY, "original", "custom"}, "codec": {"none", "h264", "h265", "av1"},

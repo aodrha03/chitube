@@ -233,6 +233,7 @@
       <h3 class="sg">압축</h3>
       <div class="grid">
         <p class="mute" style="margin:0; grid-column:1/-1">압축 방식 · 동시 압축 개수는 YouTube / 치지직 탭에서 따로 정합니다</p>
+        <label>그래픽카드로 동시에 녹화하면서 압축 (넘는 생방송은 원본 녹화 → 끝난 뒤 압축)<select name="gpu_live_max" data-n="20"></select></label>
         <label>하드웨어 가속<select name="hwaccel"><option value="auto">자동 (엔비디아 → 인텔 퀵싱크 → CPU)</option><option value="cpu">CPU</option><option value="nvenc">엔비디아 (NVENC)</option><option value="vaapi">인텔 퀵싱크</option></select></label>
       </div>
       <h3 class="sg">다운로드 · 로그인</h3>
@@ -499,7 +500,7 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '압축 방식 · 동시 압축 개수는 YouTube / 치지직 탭에서 따로 정합니다': 'Compression method and concurrent compressions are set in the YouTube / Chzzk tabs',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '그래픽카드로 동시에 녹화하면서 압축 (넘는 생방송은 원본 녹화 → 끝난 뒤 압축)': 'Live streams compressed on the GPU at once (extra streams record original → compress after)', '압축 방식 · 동시 압축 개수는 YouTube / 치지직 탭에서 따로 정합니다': 'Compression method and concurrent compressions are set in the YouTube / Chzzk tabs',
   '동시 다운로드와 따로 · 압축하는 동안에도 다음 영상을 받음': 'Separate from downloads · the next video downloads while compressing',
   '동시 압축 (다 받은 뒤 · 녹화 후 · 나중에 압축)': 'Concurrent compressions (after download · after recording · compress later)',
   '압축 대기': 'Waiting to compress', '나중에 압축 중': 'Compressing (later)', '✕ 압축 취소': '✕ Cancel compression', '나중에 압축': 'Compress later',
