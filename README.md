@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.6.2-ff0033" alt="v1.6.2"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/release-v1.7.0-ff0033" alt="v1.7.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
@@ -102,7 +102,7 @@ docker compose up -d --build
 ### 🎬 받으면서 바로 압축
 - **H.265 · H.264 · AV1** 화질 프리셋 (원본급 · 고화질 · 표준 · 용량 절약) 또는 **원본 그대로**
 - 다 받은 뒤가 아니라 **받는 동안 압축** → 임시 파일 없이 압축본만 디스크에 (유튜브 · 치지직 따로 설정)
-- 원본으로 받은 영상도 **나중에 압축** · 압축 개수를 다운로드 개수와 따로 (압축 중에도 다음 영상을 받음)
+- 원본으로 받은 영상도 나중에 **인코딩**(다시 압축) · 영상 파일까지 지우는 **파일까지 삭제** · 압축 개수를 다운로드 개수와 따로 (압축 중에도 다음 영상을 받음)
 - **인텔 퀵싱크 · 엔비디아** 그래픽카드를 자동으로 찾아 사용, 없거나 실패하면 CPU
 - 압축해도 작아지지 않는 영상은 원본 화질 그대로 저장
 

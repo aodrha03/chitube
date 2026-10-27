@@ -274,7 +274,7 @@
       <div class="grid">
         <label>압축 방식<select name="youtube_stream_compress"><option value="1">받으면서 바로 압축 (임시 파일 없음 · 추천)</option><option value="0">다 받은 뒤 압축 (원본을 잠깐 저장)</option></select></label>
         <label>생방송 녹화하면서 압축<select name="youtube_live_compress"><option value="off">끄기 · 녹화 후 압축 (가장 안정적 · 추천)</option><option value="gpu_cpu">그래픽카드로, 한계면 CPU 로</option><option value="gpu">그래픽카드로만 (안 되면 녹화 후 압축)</option></select></label>
-        <label>동시 압축 (다 받은 뒤 · 녹화 후 · 나중에 압축)<select name="compress_concurrency" data-n="20"></select></label>
+        <label>동시 압축 (다 받은 뒤 · 녹화 후 · 인코딩)<select name="compress_concurrency" data-n="20"></select></label>
       </div>
       <h3 class="sg">다운로드 <span class="mute">봇 차단을 피하는 설정 · 기본값이 안전</span></h3>
       <div class="grid">
@@ -302,7 +302,7 @@
       <div class="grid">
         <label>압축 방식<select name="chzzk_stream_compress"><option value="1">받으면서 바로 압축 (임시 파일 없음 · 추천)</option><option value="0">다 받은 뒤 압축 (원본을 잠깐 저장)</option></select></label>
         <label>생방송 녹화하면서 압축<select name="chzzk_live_compress"><option value="off">끄기 · 녹화 후 압축 (가장 안정적 · 추천)</option><option value="gpu_cpu">그래픽카드로, 한계면 CPU 로</option><option value="gpu">그래픽카드로만 (안 되면 녹화 후 압축)</option></select></label>
-        <label>동시 압축 (다 받은 뒤 · 녹화 후 · 나중에 압축)<select name="chzzk_compress_concurrency" data-n="20"></select></label>
+        <label>동시 압축 (다 받은 뒤 · 녹화 후 · 인코딩)<select name="chzzk_compress_concurrency" data-n="20"></select></label>
       </div>
       <h3 class="sg">다운로드 <span class="mute">차단 없음 · 생방송은 10초마다 확인 · 다시보기는 8갈래로 받음</span></h3>
       <div class="grid">
@@ -506,15 +506,16 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '받은 직후 검사:': 'Post-download check:', '길이가 원본과 다름': 'Length differs from the source', '품질 검사': 'Quality check', '이상 없음': 'No issues', '(10초 넘는 화면 멈춤 · 무음 없음)': '(no freeze or silence over 10s)', '화면 멈춤': 'Frozen video', '무음': 'Silence', '측정:': 'Measured:', '동시에 녹화하면서 압축 권장': 'recommended concurrent live GPU compressions', '⚠ 확인해 볼 설정': '⚠ Settings to check', '진단 파일 받기': 'Download diagnostics', '로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만': 'Logs, status, settings and active jobs in one file (no login info)',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '파일까지 삭제': 'Delete with files', '영상 파일까지 지울까요?': 'Delete the video file too?', '썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다.': 'Thumbnail, subtitles and .nfo are deleted too. This cannot be undone.',
+  '목록에서 지우고, 남은 조각 · 썸네일 같은 딸린 파일도 지울까요?': 'Remove from the list and delete leftover files (parts, thumbnail)?', '개를 영상 파일까지 지울까요?': ' videos — delete the files too?', '(받는 중인 영상은 건너뜀)': '(videos still downloading are skipped)', '받은 직후 검사:': 'Post-download check:', '길이가 원본과 다름': 'Length differs from the source', '품질 검사': 'Quality check', '이상 없음': 'No issues', '(10초 넘는 화면 멈춤 · 무음 없음)': '(no freeze or silence over 10s)', '화면 멈춤': 'Frozen video', '무음': 'Silence', '측정:': 'Measured:', '동시에 녹화하면서 압축 권장': 'recommended concurrent live GPU compressions', '⚠ 확인해 볼 설정': '⚠ Settings to check', '진단 파일 받기': 'Download diagnostics', '로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만': 'Logs, status, settings and active jobs in one file (no login info)',
   '끊긴 녹화는 다시보기로 메우기 (치지직)': 'Fill recording gaps with the replay (Chzzk)', '켜기 (끊겼던 방송은 다시보기도 받음)': 'On (also download the replay of interrupted streams)',
   '다시보기를 받은 뒤 끊긴 녹화본': 'Interrupted recording after the replay is downloaded', '그대로 두기': 'Keep', '지우기 (다시보기만 남김)': 'Delete (keep only the replay)',
   '녹화가 모두 끝나면 자동으로 업데이트합니다 (상태 → 최근 활동에 표시)': 'Will update automatically when all recordings end (shown in recent activity)', '끄기 · 녹화 후 압축 (가장 안정적 · 추천)': 'Off · compress after recording (most stable · recommended)', '그래픽카드로, 한계면 CPU 로': 'GPU, CPU when maxed out',
   '녹화 멈춤 판단 (초 · 이만큼 안 커지면 저장하고 이어서 녹화)': 'Recording stall limit (sec · save and continue in a new file)', '로그 파일 받기': 'Download log file', '최근 7일 기록 (문제 원인 찾기용)': 'Last 7 days (for troubleshooting)', '그래픽카드로 동시에 녹화하면서 압축 (넘는 생방송은 원본 녹화 → 끝난 뒤 압축)': 'Live streams compressed on the GPU at once (extra streams record original → compress after)', '압축 방식 · 동시 압축 개수는 YouTube / 치지직 탭에서 따로 정합니다': 'Compression method and concurrent compressions are set in the YouTube / Chzzk tabs',
   '동시 다운로드와 따로 · 압축하는 동안에도 다음 영상을 받음': 'Separate from downloads · the next video downloads while compressing',
-  '동시 압축 (다 받은 뒤 · 녹화 후 · 나중에 압축)': 'Concurrent compressions (after download · after recording · compress later)',
-  '압축 대기': 'Waiting to compress', '나중에 압축 중': 'Compressing (later)', '✕ 압축 취소': '✕ Cancel compression', '나중에 압축': 'Compress later',
-  '(완료만)': '(done only)', '압축할 화질을 고르세요': 'Choose a quality to compress to', '압축할 화질': 'Compress to', '압축을 멈출까요? (원본은 그대로)': 'Stop compressing? (the original is kept)', '압축을 멈출까요? (받은 원본은 그대로 저장)': 'Stop compressing? (the downloaded original is kept)', '압축 취소': 'Cancel compression', '(압축 실패 → 원본 그대로 저장 · 나중에 압축 가능)': '(compression failed → original kept · can compress later)',
+  '동시 압축 (다 받은 뒤 · 녹화 후 · 인코딩)': 'Concurrent compressions (after download · after recording · encode)',
+  '압축 대기': 'Waiting to compress', '인코딩 중': 'Encoding', '영상 인코딩 장치:': 'Video encoders:', '인코딩 실패 → CPU 로 다시 시도:': 'encoding failed → retrying on CPU:', '(원본 그대로)': '(original kept)', '✕ 압축 취소': '✕ Cancel compression', '인코딩': 'Encode',
+  '(완료만)': '(done only)', '압축할 화질을 고르세요': 'Choose a quality to compress to', '압축할 화질': 'Compress to', '압축을 멈출까요? (원본은 그대로)': 'Stop compressing? (the original is kept)', '압축을 멈출까요? (받은 원본은 그대로 저장)': 'Stop compressing? (the downloaded original is kept)', '압축 취소': 'Cancel compression', '(압축 실패 → 원본 그대로 저장 · 인코딩 가능)': '(compression failed → original kept · can encode later)',
   '개 압축 시작': ' compression(s) started', '일시정지됨': 'Paused', '일시정지 (': 'Paused (', '일시정지': 'Pause', '재개': 'Resume', '조회 중...': 'Looking up...',
   '확인 중...': 'Checking...', '저장 중...': 'Saving...', '점검 중': 'Auditing', '진행 중': 'In progress', '오류·취소': 'Errors', '다시 시도': 'Retry', '봇 감지': 'Bot detection', '봇 확인': 'bot check',
   '새 영상': 'new videos', '다시보기': 'Replays', '생방송': 'Live', '동영상': 'Videos', '숏츠': 'Shorts', '라이브': 'Live', '압축 중': 'Compressing', '조회수': 'Views', '업로드': 'Uploaded',
@@ -702,7 +703,8 @@ function buildPlatform(p) {
       <button class="sm" onclick="bulk('${p}','cancel')">취소</button>
       <button class="sm" onclick="bulk('${p}','retry')">다시 받기 <span class="mute">(오류·취소만)</span></button>
       <button class="sm" onclick="bulk('${p}','delete')">목록에서 삭제</button>
-      <span class="recomp"><select id="${p}-cq"></select><button class="sm" onclick="VIEW['${p}'].sel?.size ? recompress([...VIEW['${p}'].sel], document.getElementById('${p}-cq').value).then(ok => ok && (VIEW['${p}'].sel.clear(), refresh())) : alert('선택한 영상이 없습니다')">나중에 압축 <span class="mute">(완료만)</span></button></span>
+      <button class="sm danger" onclick="bulk('${p}','delete_files')">파일까지 삭제</button>
+      <span class="recomp"><select id="${p}-cq"></select><button class="sm" onclick="VIEW['${p}'].sel?.size ? recompress([...VIEW['${p}'].sel], document.getElementById('${p}-cq').value).then(ok => ok && (VIEW['${p}'].sel.clear(), refresh())) : alert('선택한 영상이 없습니다')">인코딩 <span class="mute">(완료만)</span></button></span>
     </div>
     <div id="${p}-all" class="vids"></div>
     <div class="pager" id="${p}-pager"></div>
@@ -948,7 +950,7 @@ function pickJob(p, id) {
   refresh();
 }
 function selectAll(p) { VIEW[p].ids.forEach(id => VIEW[p].sel.add(id)); refresh(); }
-// 나중에 압축: 다 받은 영상을 고른 화질로 (작아질 때만 바꿈 · 압축 칸이 나는 대로 차례로)
+// 인코딩: 다 받은 영상을 고른 화질로 (작아질 때만 바꿈 · 압축 칸이 나는 대로 차례로)
 const cqOptions = () => qOptions('압축할 화질').replace(/<option value="(original|custom)">.*?<\/option>/g, '');
 async function recompress(ids, quality) {
   if (!quality) return alert('압축할 화질을 고르세요'), false;
@@ -961,8 +963,8 @@ async function recompress(ids, quality) {
 
 async function bulk(p, action, ids = [...(VIEW[p].sel || [])]) {
   if (!ids.length) return alert('선택한 영상이 없습니다');
-  const what = { top: '맨 앞으로', cancel: '취소', retry: '다시 받기', delete: '목록에서 삭제 (파일은 유지)' }[action];
-  if (!confirm(`${ids.length}개 ${what}?`)) return;
+  const what = { top: '맨 앞으로', cancel: '취소', retry: '다시 받기', delete: '목록에서 삭제 (파일은 유지)', delete_files: '파일까지 삭제' }[action];
+  if (!confirm(action === 'delete_files' ? `${ids.length}개를 영상 파일까지 지울까요?\n썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다. (받는 중인 영상은 건너뜀)` : `${ids.length}개 ${what}?`)) return;
   const r = await api('/api/jobs/bulk', { method: 'POST', body: JSON.stringify({ ids, action }) });
   document.querySelector(`[data-platform=${p}] .msg`).textContent = `${r.done}개 ${what.split(' ')[0]} 처리`;
   if (VIEW[p].sel) VIEW[p].sel.clear();
@@ -1005,6 +1007,8 @@ function setCards(el, items) {  // items = [[키, html], …]
   while (el.children.length > items.length) el.lastElementChild.remove();
   el._html = null;  // setHTML 과 섞여도 다음에 다시 그리게
 }
+// 지금 압축하는 장치 (CPU · 엔비디아 · 인텔 퀵싱크) — 받으면서 · 녹화하면서 압축, 다 받은 뒤 · 녹화 후 압축, 인코딩
+const encTag = j => j.encoder && !j.waiting && (j.streaming || j.status === 'compressing') ? ` · <b translate="no">${esc(j.encoder === 'CPU' ? 'CPU' : j.encoder)}</b>` : '';
 const card = (j, p, pos = 0) => {
   const active = ['downloading', 'recording', 'compressing'].includes(j.status), sel = p && VIEW[p].sel;
   return `
@@ -1015,7 +1019,7 @@ const card = (j, p, pos = 0) => {
     ${j.status === 'done' ? '' : `<div class="bar"><i style="width:${(j.progress || 0).toFixed(1)}%"></i></div>`}
     <div class="body">
       <div class="t" translate="no">${esc(j.title || j.url)}</div>
-      <div class="mute">${j.gone ? '<span class="tag" title="점검 때 채널 목록에서 사라짐 (삭제 · 비공개 등) · 받은 파일은 그대로">원본 사라짐</span>' : ''}${j.cut ? '<span class="tag red" title="방송 중에 녹화가 끊김 · 영상 정보에서 끊긴 지점 확인">⚠ 끊김</span>' : ''}${j.streaming ? (j.status === 'recording' ? '녹화하면서 압축 중' : '받으면서 압축 중') : j.waiting ? '압축 대기' : j.recomp && j.status === 'compressing' ? '나중에 압축 중' : LABEL[j.status] || j.status}${pos ? ` · ${pos}번째` : ''}${active && j.status === 'compressing' && j.progress ? ` ${j.progress.toFixed(0)}%` : ''}</div>
+      <div class="mute">${j.gone ? '<span class="tag" title="점검 때 채널 목록에서 사라짐 (삭제 · 비공개 등) · 받은 파일은 그대로">원본 사라짐</span>' : ''}${j.cut ? '<span class="tag red" title="방송 중에 녹화가 끊김 · 영상 정보에서 끊긴 지점 확인">⚠ 끊김</span>' : ''}${j.streaming ? (j.status === 'recording' ? '녹화하면서 압축 중' : '받으면서 압축 중') : j.waiting ? '압축 대기' : j.recomp && j.status === 'compressing' ? '인코딩 중' : LABEL[j.status] || j.status}${encTag(j)}${pos ? ` · ${pos}번째` : ''}${active && j.status === 'compressing' && j.progress ? ` ${j.progress.toFixed(0)}%` : ''}</div>
       ${active && j.status !== 'compressing' && prog(j) ? `<div class="mute">${prog(j)}</div>` : ''}
       ${j.error && !j.err_seen ? `<div class="err" title="${esc(j.error)}">${esc(koErr(j.error).slice(0, 120))}</div>` : ''}
     </div>
@@ -1276,14 +1280,14 @@ async function detail(id) {
       <h2 style="margin:0" translate="no">${esc(j.title || j.url)}</h2>
       ${cutLog(j)}
       <dl>
-        <dt>상태</dt><dd>${LABEL[j.status] || j.status}${['downloading', 'recording'].includes(j.status) && prog(j) ? ` — ${prog(j)}` : j.progress && j.status !== 'done' ? ` (${j.progress.toFixed(0)}%)` : ''}</dd>
+        <dt>상태</dt><dd>${j.streaming ? (j.status === 'recording' ? '녹화하면서 압축 중' : '받으면서 압축 중') : j.waiting ? '압축 대기' : j.recomp && j.status === 'compressing' ? '인코딩 중' : LABEL[j.status] || j.status}${encTag(j)}${['downloading', 'recording'].includes(j.status) && prog(j) ? ` — ${prog(j)}` : j.progress && j.status !== 'done' ? ` (${j.progress.toFixed(0)}%)` : ''}</dd>
         <dt>종류</dt><dd>${KINDS[j.kind] || '동영상'}${j.live ? ' (실시간 녹화)' : ''}</dd>
         <dt>채널</dt><dd translate="no">${esc(m.channel || m.uploader || '-')}</dd>
         <dt>업로드</dt><dd>${date(m.upload_date)}</dd>
         <dt>길이</dt><dd>${dur(m.duration)}</dd>
         <dt>조회수</dt><dd>${m.view_count?.toLocaleString() ?? '-'}${m.like_count ? ` · 좋아요 ${m.like_count.toLocaleString()}` : ''}</dd>
         <dt>원본</dt><dd>${esc(m.resolution || '-')}${m.fps ? ` ${m.fps}fps` : ''} · ${esc(m.vcodec || '-')} / ${esc(m.acodec || '-')} · ${m.orig_est ? '약 ' : ''}${size(m.orig_size)}${m.orig_est ? ' <span class="mute">(받으면서 압축해 원본은 저장 안 함 · 방송 비트레이트로 추정)</span>' : ''}</dd>
-        <dt>저장</dt><dd>${m.quality ? `<span class="tag">${esc(qName(m.quality))}</span>` : ''}${c ? `${c.codec.toUpperCase()} CRF ${esc(c.crf)} (${esc(c.preset)}${c.encoder ? ' · ' + esc(c.encoder) : ''}) · ${size(m.size)} <span class="mute">(${Math.round((1 - m.size / m.orig_size) * 100)}% 절약)</span>` : (m.size ? `원본 그대로 · ${size(m.size)}` : '-')}${m.compress_error ? ' <span class="err">(압축 실패 → 원본 그대로 저장 · 나중에 압축 가능)</span>' : ''}${m.check_warn ? `<div class="mute">받은 직후 검사: ${esc(m.check_warn)}</div>` : ''}</dd>
+        <dt>저장</dt><dd>${m.quality ? `<span class="tag">${esc(qName(m.quality))}</span>` : ''}${c ? `${c.codec.toUpperCase()} CRF ${esc(c.crf)} (${esc(c.preset)}${c.encoder ? ' · ' + esc(c.encoder) : ''}) · ${size(m.size)} <span class="mute">(${Math.round((1 - m.size / m.orig_size) * 100)}% 절약)</span>` : (m.size ? `원본 그대로 · ${size(m.size)}` : '-')}${m.compress_error ? ' <span class="err">(압축 실패 → 원본 그대로 저장 · 인코딩 가능)</span>' : ''}${m.check_warn ? `<div class="mute">받은 직후 검사: ${esc(m.check_warn)}</div>` : ''}</dd>
         ${m.qc ? `<dt>품질 검사</dt><dd>${!m.qc.freeze.length && !m.qc.silence.length ? '이상 없음 <span class="mute">(10초 넘는 화면 멈춤 · 무음 없음)</span>'
           : [['화면 멈춤', m.qc.freeze], ['무음', m.qc.silence]].filter(([, l]) => l.length).map(([k, l]) =>
             `<div>${k} ${l.length}번 <span class="mute">— ${l.slice(0, 5).map(([a, b]) => `${dur(a) === '-' ? '00:00' : dur(a)}부터 ${b}초`).join(' · ')}${l.length > 5 ? ' …' : ''}</span></div>`).join('')}</dd>` : ''}
@@ -1299,11 +1303,12 @@ async function detail(id) {
         ${j.status === 'recording' ? `<button class="warn" onclick="confirm('녹화를 멈추고 지금까지 녹화한 부분을 저장할까요?') && (act('/api/jobs/${j.id}/cancel','POST'), dlg.close())">■ 녹화 중지 (저장)</button>`
           : j.recomp ? `<button class="danger" onclick="confirm('압축을 멈출까요? (원본은 그대로)') && (act('/api/jobs/${j.id}/cancel','POST'), dlg.close())">✕ 압축 취소</button>`
           : ['queued', 'downloading', 'compressing'].includes(j.status) ? `<button class="danger" onclick="confirm('${j.status === 'queued' ? '대기열에서 뺄까요?' : j.status === 'compressing' ? '압축을 멈출까요? (받은 원본은 그대로 저장)' : '받기를 멈추고 받던 파일을 지울까요?'}') && (act('/api/jobs/${j.id}/cancel','POST'), dlg.close())">✕ ${j.status === 'queued' ? '대기 취소' : j.status === 'compressing' ? '압축 취소' : '다운로드 취소'}</button>` : ''}
-        ${j.status === 'done' && j.file_ok && !j.recomp ? `<span class="recomp"><select id="cq-${j.id}">${cqOptions()}</select><button onclick="recompress([${j.id}], document.getElementById('cq-${j.id}').value).then(ok => ok && dlg.close())">나중에 압축</button></span>` : ''}
+        ${j.status === 'done' && j.file_ok && !j.recomp ? `<span class="recomp"><select id="cq-${j.id}">${cqOptions()}</select><button onclick="recompress([${j.id}], document.getElementById('cq-${j.id}').value).then(ok => ok && dlg.close())">인코딩</button></span>` : ''}
         ${j.status === 'done' && j.file_ok ? `<a href="/api/jobs/${j.id}/file?download=1"><button>파일 받기</button></a>` : ''}
         ${j.status === 'queued' ? `<button onclick="act('/api/jobs/${j.id}/top','POST'); dlg.close()">맨 앞으로</button>` : ''}
         ${['error', 'done', 'cancelled'].includes(j.status) && !(j.live && j.file_ok) ? `<button onclick="(${j.status !== 'done'} || confirm('기존 파일을 지우고 다시 받을까요?')) && (act('/api/jobs/${j.id}/retry','POST'), dlg.close())">다시 받기</button>` : ''}
         ${['error', 'done', 'cancelled', 'queued'].includes(j.status) ? `<button onclick="confirm('목록에서 삭제? (파일은 유지)') && (act('/api/jobs/${j.id}','DELETE'), dlg.close())">목록에서 삭제</button>` : ''}
+        ${['error', 'done', 'cancelled', 'queued'].includes(j.status) && !j.recomp ? `<button class="danger" onclick="confirm('${j.file_ok ? '영상 파일까지 지울까요?\\n썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다.' : '목록에서 지우고, 남은 조각 · 썸네일 같은 딸린 파일도 지울까요?'}') && (act('/api/jobs/${j.id}?files=1','DELETE'), dlg.close())">파일까지 삭제</button>` : ''}
         <span style="flex:1"></span>
         <button class="primary" onclick="dlg.close()">닫기</button>
       </div>`;
@@ -1386,7 +1391,7 @@ async function tick() {
 }
 setInterval(tick, 2000);
 document.addEventListener('visibilitychange', tick);
-PLATFORMS.forEach(p => document.getElementById(`${p}-cq`).innerHTML = cqOptions());  // 선택 막대의 '나중에 압축' 화질
+PLATFORMS.forEach(p => document.getElementById(`${p}-cq`).innerHTML = cqOptions());  // 선택 막대의 '인코딩' 화질
 // AV1 은 하드웨어 AV1 인코더(인텔 퀵싱크 Arc 이상 / 엔비디아 RTX 40 이상)가 감지될 때만 선택지에 보임
 // (이미 AV1 로 골라 둔 곳은 사라지지 않게 그대로 둠)
 function showAv1(st) {

@@ -4,6 +4,13 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.7.0 — 2026-10-28
+### Added
+- **Shows which device is compressing**: cards and the video info show the actual device, e.g. "Compressing · NVIDIA", "Compressing while downloading · CPU", "Compressing while recording · Intel Quick Sync" — for every kind of compression.
+- **Delete with files**: from the video info window or the selection bar, removes the entry together with the video file, thumbnail, subtitles and .nfo (and the empty per-video folder). Videos still downloading, encoding or merging are skipped; the channel poster stays. "Remove from list" still keeps the file.
+### Changed
+- **"Compress later" is now "Encode"** (re-compress downloaded videos at a quality you pick).
+
 ## v1.6.2 — 2026-10-27
 ### Fixed
 - **New downloads stopped while many "compress later" jobs were queued** (1.2.3): the "too many waiting compressions" guard counted compress-later jobs, so queuing 100 of them stopped new downloads for hours → only freshly downloaded originals count.

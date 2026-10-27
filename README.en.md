@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.en.md"><img src="https://img.shields.io/badge/release-v1.6.2-ff0033" alt="v1.6.2"></a>
+  <a href="CHANGELOG.en.md"><img src="https://img.shields.io/badge/release-v1.7.0-ff0033" alt="v1.7.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">
@@ -74,7 +74,7 @@ Get the file for your platform from [Releases](https://github.com/aodrha03/chitu
 ### 🎬 Compression
 - **H.265 · H.264 · AV1** quality presets, or keep the **original**
 - Compress **while downloading** — no temp files, only the compressed file hits the disk (set per platform)
-- **Compress later** for videos you kept in original quality; compression runs in its own slots, so the next download starts right away
+- **Encode** (re-compress later) for videos you kept in original quality, and **Delete with files**; compression runs in its own slots, so the next download starts right away
 - Uses **Intel Quick Sync / NVIDIA NVENC** automatically, falls back to CPU
 - Measures your GPU at startup and sets how many live streams it can compress at once
 

@@ -901,4 +901,33 @@ main.run_job(lj2, main.job_settings(lj2) | {"codec": "none"})
 main.yt_dlp.YoutubeDL = real_dl
 r = main.q("SELECT status, filepath, meta FROM jobs WHERE id=?", (lj2["id"],))[0]
 assert r["status"] == "done" and os.path.isfile(r["filepath"]) and "길이가 원본과 다름" in json.loads(r["meta"])["check_warn"]
+# 파일까지 삭제: 영상 · 썸네일 · 자막 · nfo 와 빈 영상별 폴더까지, 다른 영상 파일은 그대로
+dd = os.path.join(tempfile.mkdtemp(), "ch", "Season 2026")
+vd = os.path.join(dd, "ch - s2026e1027 - t [delfile0001]")
+os.makedirs(vd)
+for ext in (".mp4", ".jpg", ".nfo", ".ko.srt"):
+    open(os.path.join(vd, "ch - s2026e1027 - t [delfile0001]" + ext), "w").write("x")
+open(os.path.join(dd, "other [other000001].mp4"), "w").write("x")
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,filepath) VALUES('delfile0001','u','삭제','{}','done',?)",
+       (os.path.join(vd, "ch - s2026e1027 - t [delfile0001].mp4"),))
+dj = main.q("SELECT id FROM jobs WHERE video_id='delfile0001'")[0]["id"]
+main.delete_job(dj, files=True)
+assert not os.path.exists(vd) and os.path.exists(os.path.join(dd, "other [other000001].mp4")) and not main.q("SELECT 1 FROM jobs WHERE id=?", (dj,))
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,filepath) VALUES('delfile0002','u','삭제2','{}','downloading',?)", (os.path.join(dd, "other [other000001].mp4"),))
+dj2 = main.q("SELECT id FROM jobs WHERE video_id='delfile0002'")[0]["id"]
+assert main.bulk(main.Bulk(ids=[dj2], action="delete_files"))["done"] == 0 and os.path.exists(os.path.join(dd, "other [other000001].mp4"))  # 받는 중은 안 지움
+main.q("UPDATE jobs SET status='done' WHERE id=?", (dj2,))
+# 압축하는 장치 표시: 압축 진행 상태에 장치 이름
+ev_src = f"{cd_}/v [cancel00001].mkv"
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,filepath) VALUES('encname001','u','장치','{}','done',?)", (ev_src,))
+ej = main.q("SELECT id FROM jobs WHERE video_id='encname001'")[0]["id"]
+seen_enc, real_rf = [], main.run_ffmpeg
+main.run_ffmpeg = lambda cmd, d, jid, enc=None: (seen_enc.append((main.LIVE[jid].get("encoder"), enc)), "fail")[1]
+try:
+    main.compress(ev_src, 2, main.settings() | {"codec": "h265", "crf": "28", "ratio": "100"}, ej)
+except RuntimeError:
+    pass
+main.run_ffmpeg = real_rf
+assert seen_enc and seen_enc[0] == ("CPU", "CPU")
+main.LIVE.pop(ej, None)
 print("queue page ok")

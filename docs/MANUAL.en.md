@@ -131,7 +131,7 @@ services:
 
 - The **English / 한국어** button at the top right switches the UI language (remembered by your browser).
 - Click a video to open the **video info** window: playback, original and saved quality/size, Re-download · Download file · Remove from list.
-- Removing a video from the list **does not delete the file.**
+- **Remove from list** only removes the entry — **the file stays**. To delete the file too, use **Delete with files** (video, thumbnail, subtitles and .nfo; can't be undone; not for videos still downloading; the channel poster stays).
 
 ## 3. Downloading · Subscriptions
 
@@ -163,7 +163,8 @@ Paste a channel URL and press **＋ Subscribe**. In the options, choose what to 
 
 - Chips at the top filter All · Active · Queued · Done · Error; the search box matches title and channel.
 - Sort: newest added · oldest added · upload date · title · channel · largest · longest (the queue is always in download order).
-- **Select** → pick several videos → Move to front · Cancel · Re-download · Remove from list · Compress later.
+- **Select** → pick several videos → Move to front · Cancel · Re-download · Remove from list · **Delete with files** · Encode.
+- **Which device is compressing**: videos being compressed show the actual device on the card and in the video info, e.g. "Compressing · NVIDIA", "Compressing while downloading · CPU" (CPU · NVIDIA · Intel Quick Sync).
 
 ### Re-download
 
@@ -237,15 +238,15 @@ Set separately in the **YouTube / Chzzk tabs** (e.g. YouTube compresses while do
 
 - **Compression method**: **Compress while downloading** (default · no temp file) / Compress after download (keeps the original briefly)
 - **Compress live streams while recording**: Off · compress after recording (default · most stable) / GPU, CPU when maxed out / GPU only
-- **Live streams compressed on the GPU at once** (Settings → Common; default: measured from your GPU at startup, or 3 if it can't be measured): the GPU has one encoder that's shared, so compressing too many streams at once makes all of them fall behind real time and stall. Streams above this number are **recorded as original and compressed after the stream ends**. While a stream is being compressed on the GPU, other compressions (after download · after recording · compress later) move off the GPU to the CPU. Entry-level cards (e.g. RTX A400 · GTX 1650) handle about 2–3 1080p streams.
-- **Concurrent compressions**: how many after-download · after-recording · compress-later jobs run at once. Counted **separately from downloads**, so the next video downloads while compressing. Waiting videos show "Waiting to compress".
+- **Live streams compressed on the GPU at once** (Settings → Common; default: measured from your GPU at startup, or 3 if it can't be measured): the GPU has one encoder that's shared, so compressing too many streams at once makes all of them fall behind real time and stall. Streams above this number are **recorded as original and compressed after the stream ends**. While a stream is being compressed on the GPU, other compressions (after download · after recording · encode) move off the GPU to the CPU. Entry-level cards (e.g. RTX A400 · GTX 1650) handle about 2–3 1080p streams.
+- **Concurrent compressions**: how many after-download · after-recording · encode jobs run at once. Counted **separately from downloads**, so the next video downloads while compressing. Waiting videos show "Waiting to compress".
 
-### Compress later
+### Encode
 
-Compress videos you kept as original, recordings or replays later (e.g. when space runs low).
+Re-compress videos you kept as original, recordings or replays at a quality you pick, to save space (e.g. when space runs low).
 
-- In the video info window, pick a quality under **Compress to** and press **Compress later**.
-- Several: **Select** in the list → pick videos → choose a quality in the selection bar → **Compress later** (done videos only).
+- In the video info window, pick a quality under **Compress to** and press **Encode**.
+- Several: **Select** in the list → pick videos → choose a quality in the selection bar → **Encode** (done videos only).
 - Runs up to the concurrent-compression limit. The compressed file replaces the original **only if it's smaller** (otherwise the original stays · noted in recent activity). **Cancel compression** in the video info window stops it (original kept).
 - If compression fails, the original is kept and the video info shows "(compression failed → original kept)". Cancelling while a finished download is compressing also keeps the original and marks it Done.
 

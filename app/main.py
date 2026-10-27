@@ -72,7 +72,7 @@ DEFAULTS = {
     "gap_keep_rec": "1",        # 1 = 다시보기를 받은 뒤에도 끊긴 녹화본 그대로 둠 | 0 = 녹화본은 지움 (다시보기만 남김)
     "stall_sec": "45",          # 생방송 녹화가 이만큼(초) 안 커지면 멈춘 것으로 보고 저장 → 새 파일로 이어서 녹화
     "gpu_live_max": "3",        # 그래픽카드로 동시에 녹화하면서 압축할 생방송 최대 개수. 넘는 방송은 원본으로 녹화 → 끝난 뒤 압축
-    "compress_concurrency": "1",        # 유튜브 동시 압축 개수 (다 받은 뒤 압축 · 녹화 후 압축 · 나중에 압축). 다운로드 개수와 따로
+    "compress_concurrency": "1",        # 유튜브 동시 압축 개수 (다 받은 뒤 압축 · 녹화 후 압축 · 인코딩). 다운로드 개수와 따로
     "chzzk_compress_concurrency": "1",  # 치지직 동시 압축 개수
     "daily_limit": "100",       # 24시간 동안 최대 다운로드 개수
     "bot_cooldown_min": "60",   # 차단 신호 감지 시 전체 일시정지 시간
@@ -180,7 +180,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.6.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.7.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -756,8 +756,8 @@ def avatar_of(info):
     return next((t["url"] for t in thumbs if "avatar" in (t.get("id") or "")), thumbs[-1]["url"] if thumbs else None)
 
 
-def run_ffmpeg(cmd, duration, jid):
-    """진행률을 LIVE 에 표시하며 실행. 성공이면 None, 실패면 오류 메시지."""
+def run_ffmpeg(cmd, duration, jid, enc=None):
+    """진행률을 LIVE 에 표시하며 실행. 성공이면 None, 실패면 오류 메시지. enc = 화면에 보일 압축 장치 이름 (CPU · 엔비디아 · 인텔 퀵싱크)"""
     # 오류 출력은 파일로: 파이프로 받으면 깨진 녹화본처럼 오류가 많을 때 파이프가 꽉 차 ffmpeg 와 서로 기다리며 영원히 멈췄음
     with tempfile.TemporaryFile() as ef:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=ef, text=True)
@@ -767,7 +767,7 @@ def run_ffmpeg(cmd, duration, jid):
             if line.startswith("out_time_us=") and duration:
                 v = line.split("=", 1)[1].strip()
                 if v.isdigit():
-                    LIVE[jid] = {"status": "compressing", "progress": min(int(v) / 1e6 / duration * 100, 100)}
+                    LIVE[jid] = {"status": "compressing", "progress": min(int(v) / 1e6 / duration * 100, 100), "encoder": enc}
         if p.wait() == 0:
             return None
         ef.seek(0)
@@ -788,11 +788,13 @@ def compress(src, duration, s, jid, force=False, tags=None, live=False):
         hw = "cpu"
     # 첫 화면 크기로 고정 (녹화 중간에 해상도가 바뀐 생방송 녹화본도 압축이 멈추지 않게). 일반 영상은 그대로 (10비트 등 유지)
     size = None if s["codec"] == "copy" or not live else next(((w, h) for t, _, w, h in probe_streams(src)[0] if t == "video"), None)
-    err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw, size), duration, jid)
+    enc = None if s["codec"] == "copy" else HW_NAME[hw]  # mp4 로 정리만 할 땐 압축이 아님
+    LIVE[jid] = {"status": "compressing", "progress": 0, "encoder": enc}
+    err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw, size), duration, jid, enc)
     if err is not None and hw != "cpu" and jid not in CANCEL:  # 드라이버 문제 등 → CPU 로 한 번 더
         log(f"{HW_NAME[hw]} 인코딩 실패 → CPU 로 다시 시도: {err.strip()[-120:]}")
         hw = "cpu"
-        err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw, size), duration, jid)
+        err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw, size), duration, jid, HW_NAME[hw])
     if err is not None:
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -927,7 +929,7 @@ def run_job(job, s, dl=None):
                                                           # 조각 mp4 로 써야 받는 중에도 열림 (미리보기). 끝나면 메타데이터 단계가 일반 mp4 로 다시 씀
                                                           "ffmpeg_o": [*enc, *([] if is_live else ["-movflags", "+frag_keyframe+empty_moov"]),
                                                                        "-progress", prog, "-nostats"]})
-                threading.Thread(target=watch_stream, args=(jid, prog, sel.get("duration"), stop, is_live), daemon=True).start()
+                threading.Thread(target=watch_stream, args=(jid, prog, sel.get("duration"), stop, is_live, HW_NAME[stream_hw]), daemon=True).start()
                 if is_live and stream_hw != "cpu":
                     GPU_LIVE[jid] = stream_hw
             elif is_live or cz:
@@ -1023,7 +1025,7 @@ def run_job(job, s, dl=None):
             except RuntimeError as e:  # 압축만 실패 → 받은 원본으로 완료 (예전엔 '오류' → 점검이 다시 받고 또 실패하기를 반복)
                 if jid in CANCEL:
                     raise
-                log(f"압축 실패 → 원본 그대로 저장 (나중에 압축 가능): {info.get('title')} — {str(e)[-120:]}")
+                log(f"압축 실패 → 원본 그대로 저장 (인코딩 가능): {info.get('title')} — {str(e)[-120:]}")
                 meta["compress_error"] = str(e)[-300:]
                 path, hw = orig, "cpu"
             encoded = path != orig
@@ -1205,7 +1207,7 @@ def stall_check(jid, size, st):
     st["acted"] = acted + 1
 
 
-def watch_stream(jid, prog, duration, stop, live=False):
+def watch_stream(jid, prog, duration, stop, live=False, enc=None):
     """받으면서(녹화하면서) 압축: ffmpeg -progress 파일(key=value 가 계속 덧붙음)의 마지막 값으로 진행률·남은 시간 표시.
     bytes/speed 는 디스크에 쓴 압축본 기준 (받는 원본 양이 아님). 생방송은 끝을 몰라 녹화한 양·속도만"""
     t0, st, prev = time.time(), {}, None
@@ -1221,7 +1223,7 @@ def watch_stream(jid, prog, duration, stop, live=False):
             # 속도 = 직전 3초 동안 늘어난 양 (예전엔 시작부터 평균이라 측정이 다시 시작되면 초당 수백 GB 같은 값이 나왔음)
             speed = (size - prev[0]) / (time.time() - prev[1]) if prev and size >= prev[0] and time.time() > prev[1] else None
             prev = (size, time.time())
-            LIVE[jid] = {"status": "recording" if live else "downloading", "streaming": True, "bytes": size, "speed": speed,
+            LIVE[jid] = {"status": "recording" if live else "downloading", "streaming": True, "encoder": enc, "bytes": size, "speed": speed,
                          "progress": min(done / duration * 100, 100) if duration else 0,
                          "eta": int((duration - done) * el / done) if duration and done > 0 else None}
             if live:
@@ -1632,7 +1634,7 @@ def worker_step(slot, live):
             yt, cz = min(int(s["concurrency"]), MAX_PARALLEL), min(int(s["chzzk_concurrency"]), MAX_PARALLEL)
         yt = yt if yt_ok else 0
         if not live:  # 압축 대기가 압축 개수의 2배를 넘으면 그 플랫폼은 새로 받지 않음 (생방송 녹화는 쉬지 않음)
-            # 나중에 압축(RECOMP)은 새로 받은 원본이 아니라 빼고 셈 — 예전엔 100개를 나중에 압축으로 걸면 끝날 때까지 새 다운로드가 멈췄음
+            # 인코딩(RECOMP)은 새로 받은 원본이 아니라 빼고 셈 — 예전엔 100개를 인코딩으로 걸면 끝날 때까지 새 다운로드가 멈췄음
             waiting = [p for j, p in COMPRESSING.copy().items() if j not in COMP_RUN and j not in RECOMP]
             yt = 0 if waiting.count("youtube") >= 2 * int(s["compress_concurrency"]) else yt
             cz = 0 if waiting.count("chzzk") >= 2 * int(s["chzzk_compress_concurrency"]) else cz
@@ -2077,7 +2079,7 @@ def jobs(sub: int | None = None, platform: str | None = None, status: str | None
 
 class Bulk(BaseModel):
     ids: list[int]
-    action: str  # cancel | retry | delete | top
+    action: str  # cancel | retry | delete | delete_files | top
 
 
 @app.post("/api/jobs/bulk")
@@ -2095,8 +2097,8 @@ def bulk(body: Bulk):
                 redownload(jid)
             except HTTPException:  # 녹화 파일이 있는 생방송은 건너뜀
                 continue
-        elif body.action == "delete" and st and st != "downloading" and jid not in RECOMP:  # 나중에 압축 중인 건 건너뜀
-            delete_job(jid)
+        elif body.action in ("delete", "delete_files") and st and st != "downloading" and jid not in RECOMP and jid not in MERGING:  # 인코딩 중 · 합치는 중은 건너뜀
+            delete_job(jid, files=body.action == "delete_files")
         else:
             continue
         done += 1
@@ -2118,7 +2120,7 @@ def job(jid: int):
 
 
 def live_state(row):
-    """화면에 덮어 보일 실시간 상태. 받는 중(또는 나중에 압축 중)인 것만 — 예전엔 끝난 작업에 진행 표시 스레드가 늦게 남긴
+    """화면에 덮어 보일 실시간 상태. 받는 중(또는 인코딩 중)인 것만 — 예전엔 끝난 작업에 진행 표시 스레드가 늦게 남긴
     '녹화 중' 상태가 그대로 보여, 오류 항목이 녹화 중으로 보이고 취소 · 목록에서 삭제가 안 됐음"""
     if row["id"] in RECOMP:
         return LIVE.get(row["id"], {}) | {"recomp": True}
@@ -2188,7 +2190,7 @@ def probe_streams(p):
 MERGING = set()  # 합치는 중인 녹화 (1번째 조각 id) → 두 번 누르기 방지
 
 
-RECOMP = set()  # 나중에 압축 중인 완료 영상 (화면에 압축 진행률 표시)
+RECOMP = set()  # 인코딩 중인 완료 영상 (화면에 압축 진행률 표시)
 
 
 class Recompress(BaseModel):
@@ -2198,7 +2200,7 @@ class Recompress(BaseModel):
 
 @app.post("/api/jobs/compress")
 def recompress(body: Recompress):
-    """다 받은 영상(원본 그대로 받은 것 · 녹화 · 다시보기)을 나중에 압축 → 압축 칸이 나는 대로 차례로. 작아질 때만 바꿈"""
+    """다 받은 영상(원본 그대로 받은 것 · 녹화 · 다시보기)의 인코딩: 고른 화질로 다시 압축 → 압축 칸이 나는 대로 차례로. 작아질 때만 바꿈"""
     if body.quality not in QUALITY:
         raise HTTPException(400, "압축할 화질을 고르세요")
     rows = [r for r in q(f"SELECT * FROM jobs WHERE status='done' AND id IN ({','.join('?' * len(body.ids)) or 'NULL'})", body.ids)
@@ -2208,7 +2210,7 @@ def recompress(body: Recompress):
         LIVE[r["id"]] = {"status": "compressing", "progress": 0, "waiting": True}
         threading.Thread(target=recompress_one, args=(r, body.quality), daemon=True).start()
     if rows:
-        log(f"나중에 압축 {len(rows)}개 시작 ({body.quality})")
+        log(f"인코딩 {len(rows)}개 시작 ({body.quality})")
     return {"queued": len(rows)}
 
 
@@ -2226,9 +2228,9 @@ def recompress_one(job, quality):
         meta |= {"size": os.path.getsize(out), "orig_size": meta.get("orig_size") or size0, "quality": quality,
                  "compressed": {"codec": s["codec"], "crf": s["crf"], "preset": s["preset"], "encoder": HW_NAME[hw]}}
         q("UPDATE jobs SET filepath=?, meta=? WHERE id=?", (out, json.dumps(meta, ensure_ascii=False), jid))
-        log(f"나중에 압축 완료: {job['title']} ({size0 / 1e9:.2f}GB → {meta['size'] / 1e9:.2f}GB)")
+        log(f"인코딩 완료: {job['title']} ({size0 / 1e9:.2f}GB → {meta['size'] / 1e9:.2f}GB)")
     except Exception as e:
-        log(f"나중에 압축 {'취소' if jid in CANCEL else '실패'} (원본 그대로): {job['title']} — {str(e)[-120:]}")
+        log(f"인코딩 {'취소' if jid in CANCEL else '실패'} (원본 그대로): {job['title']} — {str(e)[-120:]}")
     finally:
         compress_done(jid)
         RECOMP.discard(jid)
@@ -2378,10 +2380,36 @@ def cancel(jid: int):  # 라이브 녹화는 중지 후 저장, 다운로드/압
     q("UPDATE jobs SET status='cancelled', error=NULL WHERE id=? AND status='queued'", (jid,))
 
 
+def remove_files(path):
+    """영상 파일과 딸린 파일(썸네일 · 자막 · nfo · 다시 받기로 비켜 둔 .keep) 지우기, 비면 영상별 폴더도 → 지운 파일 수.
+    파일 이름 끝이 '[영상ID]' 라 다른 영상 파일과 겹치지 않음. 채널 포스터 · tvshow.nfo 는 그대로"""
+    if not path:
+        return 0
+    n = 0
+    for f in glob.glob(glob.escape(os.path.splitext(path)[0]) + ".*"):
+        if os.path.isfile(f):
+            os.remove(f)
+            n += 1
+    try:
+        os.rmdir(os.path.dirname(path))  # 비어 있을 때만 지워짐
+    except OSError:
+        pass
+    return n
+
+
 @app.delete("/api/jobs/{jid}")
-def delete_job(jid: int):  # 목록에서만 제거 (파일은 그대로)
+def delete_job(jid: int, files: bool = False):  # 목록에서 제거. files=1 이면 영상 파일과 딸린 파일까지 삭제
     if jid in RECOMP:
-        raise HTTPException(409, "나중에 압축 중입니다 (끝난 뒤 또는 압축 취소 후에)")
+        raise HTTPException(409, "인코딩 중입니다 (끝난 뒤 또는 압축 취소 후에)")
+    if files and jid in MERGING:
+        raise HTTPException(409, "녹화 조각을 합치는 중입니다 (끝난 뒤에)")
+    if files:
+        j = q("SELECT filepath, title FROM jobs WHERE id=? AND status!='downloading'", (jid,))
+        if j:
+            n = remove_files(j[0]["filepath"])
+            q("DELETE FROM jobs WHERE id=?", (jid,))
+            log(f"목록과 파일 삭제: {j[0]['title']} (파일 {n}개)")
+        return
     j = q("SELECT filepath FROM jobs WHERE id=? AND status!='downloading'", (jid,))
     if j:
         restore_keep(j[0]["filepath"])  # 다시 받기 대기 중이던 영상이면 비켜 둔 파일을 되돌린 뒤 목록에서만 뺌
@@ -2633,7 +2661,7 @@ def audit_now():  # 구독 확인 스레드가 바로 실행
 @app.post("/api/jobs/{jid}/redownload")
 def redownload(jid: int):  # 기존 파일과 딸린 파일(썸네일·자막·nfo) 지우고 다시 받기
     if jid in RECOMP:
-        raise HTTPException(409, "나중에 압축 중입니다 (끝난 뒤 또는 압축 취소 후에)")
+        raise HTTPException(409, "인코딩 중입니다 (끝난 뒤 또는 압축 취소 후에)")
     j = q("SELECT filepath, live FROM jobs WHERE id=? AND status!='downloading'", (jid,))
     if j and j[0]["live"] and j[0]["filepath"] and os.path.isfile(j[0]["filepath"]):
         # 끝난 방송은 다시 녹화할 수 없음 → 지우면 녹화본만 사라짐 (예전엔 지운 뒤 '방송 중이 아님' 오류로 녹화를 잃었음)
