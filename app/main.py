@@ -170,7 +170,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.2.4"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.2.5"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -543,7 +543,7 @@ def ffmpeg_cmd(src, dst, s, vbit=0, tags=None, hw="cpu", size=None):
     """vbit = 원본 영상 비트레이트(bps). 있으면 '원본 대비 ratio%' 상한을 걸어 용량이 확실히 줄게 함.
     tags = 파일에 넣을 메타데이터 (원본에 태그가 없는 라이브 녹화본용). hw = cpu | nvenc | vaapi. size = encode_args 참고"""
     pre, enc = encode_args(s, vbit, hw, size=size)
-    return ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *pre, "-i", src, "-map", "0:v:0", "-map", "0:a:0?", *enc,
+    return [*(["nice", "-n", "10"] if hw == "cpu" else []), "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *pre, "-i", src, "-map", "0:v:0", "-map", "0:a:0?", *enc,
             "-map_metadata", "0", *[a for k, v in (tags or {}).items() if v for a in ("-metadata", f"{k}={v}")],
             "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", dst]
 
@@ -718,6 +718,10 @@ def compress(src, duration, s, jid, force=False, tags=None, live=False):
     # 전체 평균 비트레이트에서 오디오 몫을 빼서 원본 영상 비트레이트 추정
     vbit = max(os.path.getsize(src) * 8 / duration - yt_dlp.utils.parse_bytes(s["audio_bitrate"]), 0) if duration else 0
     hw = "cpu" if s["codec"] == "copy" else encoder_for(s)
+    if hw != "cpu" and not live and gpu_live(hw):
+        # 생방송 녹화는 실시간이라 압축기를 다른 작업과 나눠 쓰면 못 따라가고 멈춤 (실측: RTX A400 압축기 100% → 녹화 멈춤)
+        # → 녹화 중엔 다 받은 영상 압축을 CPU 로 (낮은 우선순위라 녹화 · 화면에 영향 적음)
+        hw = "cpu"
     # 첫 화면 크기로 고정 (녹화 중간에 해상도가 바뀐 생방송 녹화본도 압축이 멈추지 않게). 일반 영상은 그대로 (10비트 등 유지)
     size = None if s["codec"] == "copy" or not live else next(((w, h) for t, _, w, h in probe_streams(src)[0] if t == "video"), None)
     err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw, size), duration, jid)
@@ -736,6 +740,13 @@ def compress(src, duration, s, jid, force=False, tags=None, live=False):
     if src != dst:
         os.remove(src)
     return dst, hw
+
+
+GPU_LIVE = {}  # 그래픽카드로 녹화하면서 압축 중인 생방송 job → 장치(nvenc · vaapi)
+
+
+def gpu_live(hw):
+    return hw in GPU_LIVE.values()
 
 
 def run_job(job, s, dl=None):
@@ -838,6 +849,8 @@ def run_job(job, s, dl=None):
                                                           "ffmpeg_o": [*enc, *([] if is_live else ["-movflags", "+frag_keyframe+empty_moov"]),
                                                                        "-progress", prog, "-nostats"]})
                 threading.Thread(target=watch_stream, args=(jid, prog, sel.get("duration"), stop, is_live), daemon=True).start()
+                if is_live and stream_hw != "cpu":
+                    GPU_LIVE[jid] = stream_hw
             elif is_live or cz:
                 name = os.path.basename(y.prepare_filename(raw)).split(f" [{raw['id']}]")[0]
                 threading.Thread(target=watch_size, args=(jid, season_dir, name, stop, is_live), daemon=True).start()
@@ -845,6 +858,7 @@ def run_job(job, s, dl=None):
                 return raw, y.process_ie_result(raw, download=True), is_live, cz, stream_hw
             finally:
                 stop.append(True)
+                GPU_LIVE.pop(jid, None)
 
     orig = info = meta = None
     try:
@@ -1044,6 +1058,8 @@ def watch_size(jid, d, name, stop, live=True):
                 stall_check(jid, got, st)
         except OSError:
             pass
+        except Exception as e:  # DB 잠김 등으로 스레드가 죽으면 진행 표시 · 멈춤 감시가 같이 멈춤
+            log(f"진행 확인 오류 (계속 확인): {str(e)[:100]}")
         time.sleep(3)
 
 
@@ -1061,7 +1077,7 @@ def stall_check(jid, size, st):
     새 파일로 이어서 녹화되게 (continue_live). 예: 녹화 중인 파일을 복사 · 이동하면(OS · Docker 폴더 연결 방식에 따라) ffmpeg 가 멈춤.
     먼저 'q'(정상 종료), 그래도 30초 안에 안 끝나면(쓰기에서 멈춰 'q' 를 못 읽음) 강제 종료"""
     now = time.time()
-    if size > st.get("size", -1):
+    if size > st.get("size", -1) or "t" not in st:
         st.update(size=size, t=now, acted=0)
         return
     idle, acted = now - st["t"], st.get("acted", 0)
@@ -1083,7 +1099,7 @@ def stall_check(jid, size, st):
 def watch_stream(jid, prog, duration, stop, live=False):
     """받으면서(녹화하면서) 압축: ffmpeg -progress 파일(key=value 가 계속 덧붙음)의 마지막 값으로 진행률·남은 시간 표시.
     bytes/speed 는 디스크에 쓴 압축본 기준 (받는 원본 양이 아님). 생방송은 끝을 몰라 녹화한 양·속도만"""
-    t0, st = time.time(), {}
+    t0, st, prev = time.time(), {}, None
     while not stop:
         try:
             with open(prog, "rb") as f:
@@ -1093,13 +1109,19 @@ def watch_stream(jid, prog, duration, stop, live=False):
             size, el = int(kv["total_size"]) if kv.get("total_size", "").isdigit() else 0, time.time() - t0
             if stop:
                 break
-            LIVE[jid] = {"status": "recording" if live else "downloading", "streaming": True, "bytes": size, "speed": size / el if el else None,
+            # 속도 = 직전 3초 동안 늘어난 양 (예전엔 시작부터 평균이라 측정이 다시 시작되면 초당 수백 GB 같은 값이 나왔음)
+            speed = (size - prev[0]) / (time.time() - prev[1]) if prev and size >= prev[0] and time.time() > prev[1] else None
+            prev = (size, time.time())
+            LIVE[jid] = {"status": "recording" if live else "downloading", "streaming": True, "bytes": size, "speed": speed,
                          "progress": min(done / duration * 100, 100) if duration else 0,
                          "eta": int((duration - done) * el / done) if duration and done > 0 else None}
             if live:
                 stall_check(jid, size, st)
         except OSError:
-            pass
+            if live:  # 진행 기록 파일을 못 읽어도(ffmpeg 가 멈춰 안 씀 등) 멈춤 감시는 계속
+                stall_check(jid, st.get("size", 0), st)
+        except Exception as e:  # DB 잠김 등 — 예전엔 여기서 스레드가 죽어 진행 표시 · 멈춤 감시가 같이 멈췄음
+            log(f"진행 확인 오류 (계속 확인): {str(e)[:100]}")
         time.sleep(3)
     try:
         os.remove(prog)

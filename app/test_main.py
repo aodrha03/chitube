@@ -737,4 +737,20 @@ main.yt_dlp.YoutubeDL = real_dl
 main.q("DELETE FROM settings WHERE key='youtube_stream_compress'")
 r = main.q("SELECT status, filepath FROM jobs WHERE id=?", (xj["id"],))[0]
 assert r == {"status": "done", "filepath": f"{cd_}/v [cancel00001].mkv"} and os.path.isfile(r["filepath"])
+# 녹화 진행 감시: 다른 종류 오류(DB 잠김 등)가 나도 죽지 않고 계속, 속도는 직전 구간 기준
+pf = os.path.join(tempfile.mkdtemp(), "progress.txt")
+open(pf, "w").write("total_size=1500000000\nout_time_us=100\n")
+calls_w, real_sc = [], main.stall_check
+def flaky_sc(jid, size, st):
+    calls_w.append(size)
+    if len(calls_w) == 1:
+        raise main.sqlite3.OperationalError("database is locked")
+main.stall_check, stop_w = flaky_sc, []
+tw = main.threading.Thread(target=main.watch_stream, args=(-7, pf, None, stop_w, True)); tw.start()
+main.time.sleep(4)
+open(pf, "a").write("total_size=1503000000\nout_time_us=200\n")
+main.time.sleep(4); stop_w.append(True); tw.join(5)
+main.stall_check = real_sc
+assert len(calls_w) >= 2 and main.LIVE[-7]["speed"] < 2e6  # 3MB / 약 3초 (예전 방식이면 시작부터 평균이라 수백 MB/s 이상)
+main.LIVE.pop(-7, None)
 print("queue page ok")
