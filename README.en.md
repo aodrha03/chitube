@@ -21,6 +21,7 @@
 <p align="center">
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-features">Features</a> ·
+  <a href="docs/MANUAL.en.md">User manual</a> ·
   <a href="#-faq">FAQ</a> ·
   <a href="CHANGELOG.md">Changelog (Korean)</a>
 </p>
@@ -31,7 +32,7 @@
   <img src="docs/images/english.png" alt="ChiTube web UI in English" width="90%">
 </p>
 
-> The web UI can be switched to **English** with the button at the top right. The user manual and install guides are currently in Korean.
+> The web UI can be switched to **English** with the button at the top right. See the **[user manual](docs/MANUAL.en.md)** for details (the short per-platform install guides in the zips are in Korean).
 
 ## 🚀 Quick start
 
@@ -52,7 +53,7 @@ Open **`http://<server>:8945`** in your browser. It works with the default setti
 
 ### 📦 Install packages
 
-Get the file for your platform from [Releases](https://github.com/aodrha03/chitube/releases/latest). Each zip contains a short install guide (`설치방법.md`, Korean).
+Get the file for your platform from [Releases](https://github.com/aodrha03/chitube/releases/latest). Each zip contains a short install guide (`설치방법.md`, Korean) — the same steps are in the [user manual](docs/MANUAL.en.md#1-installation).
 
 | Platform | File | Notes |
 |---|---|---|
