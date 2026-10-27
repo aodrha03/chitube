@@ -180,7 +180,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.5.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.6.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -568,6 +568,33 @@ def detect_hw():
     log("영상 인코딩 장치: " + (", ".join(f"{HW_NAME[h]}({'/'.join(sorted(c))})" for h, c in HW.items()) or "CPU 만 사용"))
     for hw, why in HW_WHY.items():
         log(f"{HW_NAME[hw]} 사용 안 됨: {why}")
+
+
+def gpu_bench():
+    """그래픽카드로 1080p60 영상을 실제로 압축해 처리 속도(fps)를 재고 → 동시에 녹화하면서 압축할 생방송 수를 그 카드에 맞게 (70% 여유).
+    생방송 녹화처럼 CPU 가 풀고 그래픽카드가 압축. 직접 정한 값(설정 저장)이 있으면 그 값이 우선 — 측정값은 기본값만 바꿈"""
+    hw = next((h for h in ("nvenc", "vaapi") if HW.get(h)), None)
+    if not hw:
+        return
+    codec = "h265" if "h265" in HW[hw] else sorted(HW[hw])[0]
+    d = tempfile.mkdtemp()
+    try:
+        src = os.path.join(d, "bench.mp4")
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=60", "-t", "5", "-c:v", "libx264",
+                        "-preset", "ultrafast", src], timeout=300, check=True, capture_output=True)
+        pre, enc = encode_args(settings() | {"codec": codec, "crf": "24", "preset": "fast"}, 0, hw, ts=True)
+        t = time.time()
+        subprocess.run(["ffmpeg", "-v", "error", *pre, "-i", src, *enc, "-f", "null", "-"], timeout=300, check=True, capture_output=True)
+        fps = 300 / (time.time() - t)
+    except (OSError, subprocess.SubprocessError) as e:
+        log(f"그래픽카드 속도 측정 실패 (기본값 그대로): {e}")
+        return
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    n = max(1, int(fps * 0.7 / 60))
+    STATE["gpu_bench"] = {"hw": HW_NAME[hw], "codec": codec.upper(), "fps": round(fps), "suggest": n}
+    DEFAULTS["gpu_live_max"] = str(n)
+    log(f"그래픽카드 속도 측정: {HW_NAME[hw]} {codec.upper()} 1080p60 압축 {fps:.0f}fps → 동시에 녹화하면서 압축 권장 {n}개")
 
 
 def encoder_for(s):
@@ -1533,9 +1560,41 @@ def worker(slot, live=0):
     forever(f"{'라이브 녹화' if live else '다운로드'} {slot + 1}", lambda: worker_step(slot, live))
 
 
+QC_LOCK = threading.Lock()  # 품질 검사는 한 번에 하나 (CPU 를 조금만)
+
+
+def quality_check(jid):
+    """끝난 녹화에서 화면이 멈춘 구간 · 소리가 없는 구간(10초 이상)을 찾아 영상 정보에 기록. 끊김 기록에 안 잡히는 품질 문제용.
+    화면은 키프레임만 풀어서(빠름), 소리는 전부. 낮은 우선순위라 녹화 · 다운로드에 영향 적음. 실패해도 무시"""
+    with QC_LOCK:
+        j = q("SELECT filepath, title FROM jobs WHERE id=? AND status='done'", (jid,))
+        if not j or not j[0]["filepath"] or not os.path.isfile(j[0]["filepath"]):
+            return
+        try:
+            r = subprocess.run(["nice", "-n", "19", "ffmpeg", "-hide_banner", "-nostats", "-skip_frame", "nokey", "-i", j[0]["filepath"],
+                                "-map", "0:v:0?", "-map", "0:a:0?", "-vf", "freezedetect=n=0.003:d=10", "-af", "silencedetect=n=-50dB:d=10",
+                                "-f", "null", "-"], capture_output=True, text=True, timeout=6 * 3600)
+        except (OSError, subprocess.SubprocessError) as e:
+            log(f"녹화 품질 검사 실패: {j[0]['title']} — {e}")
+            return
+        total = probe_duration(j[0]["filepath"])
+
+        def pick(a, b):  # 시작 · 길이 쌍. 파일 끝까지 이어진 구간은 ffmpeg 가 길이를 안 적음 → 끝까지로
+            st, du = re.findall(rf"{a}: ([\d.]+)", r.stderr), re.findall(rf"{b}: ([\d.]+)", r.stderr)
+            return [[round(float(x)), round(float(du[i]) if i < len(du) else max(total - float(x), 0))] for i, x in enumerate(st)][:50]
+        qc = {"freeze": pick("freeze_start", "freeze_duration"), "silence": pick("silence_start", "silence_duration"), "t": time.time()}
+        row = q("SELECT meta FROM jobs WHERE id=?", (jid,))
+        if row:
+            q("UPDATE jobs SET meta=? WHERE id=?", (json.dumps(json.loads(row[0]["meta"] or "{}") | {"qc": qc}, ensure_ascii=False), jid))
+        if qc["freeze"] or qc["silence"]:
+            log(f"녹화 품질 검사: 화면 멈춤 {len(qc['freeze'])}번 · 무음 {len(qc['silence'])}번 — {j[0]['title']} (영상 정보에서 확인)")
+
+
 def job_thread(job, s, dl):
     try:
         run_job(job, s, dl)
+        if job["live"]:  # 끝난 녹화 품질 검사 (백그라운드)
+            threading.Thread(target=quality_check, args=(job["id"],), daemon=True).start()
         if job["id"] in MERGE_AFTER:
             MERGE_AFTER.discard(job["id"])
             auto_merge(job)
@@ -1919,6 +1978,7 @@ async def lifespan(app):
     sweep_temp()  # 강제 종료/취소로 남은 압축 임시파일 정리
     VERSIONS.update(versions())
     detect_hw()
+    threading.Thread(target=gpu_bench, daemon=True).start()  # 시작을 늦추지 않게 뒤에서
     for i in range(MAX_PARALLEL * 2):  # 스레드는 공용, 플랫폼별 개수는 claim 에서 제한
         start(f"다운로드 {i + 1}", worker, i)
     for i in range(MAX_PARALLEL * 2):  # 유튜브·치지직 최대치만큼. 실제 개수는 claim 에서 설정값으로 제한
@@ -2464,9 +2524,11 @@ def setting_warnings(s, disks):
     """상태 화면에 보일 '위험한 설정' 안내 (실제 사례: 보급형 그래픽카드 + 생방송 동시 녹화하면서 압축 + 압축 5개 → 녹화 멈춤)"""
     w, cores = [], os.cpu_count() or 1
     gpu_live = [p for p in PLATFORMS if (s[f"{p}_live_compress"] or s["live_compress"]) != "off"] if HW else []
-    if gpu_live and int(s["gpu_live_max"]) > 3:
-        w.append(f"그래픽카드로 동시에 녹화하면서 압축 {s['gpu_live_max']}개: 보급형 카드(RTX A400 · GTX 1650 등)는 1080p 생방송 2~3개가 한계라 "
-                 "넘으면 녹화가 멈출 수 있습니다 (설정 → 공통 → 압축)")
+    b = STATE.get("gpu_bench")
+    if gpu_live and int(s["gpu_live_max"]) > (b["suggest"] if b else 3):
+        w.append(f"그래픽카드로 동시에 녹화하면서 압축 {s['gpu_live_max']}개: " + (
+            f"이 카드 측정값(1080p60 {b['fps']}fps)으로는 {b['suggest']}개가 적당합니다" if b else
+            "보급형 카드(RTX A400 · GTX 1650 등)는 1080p 생방송 2~3개가 한계입니다") + " — 넘으면 녹화가 멈출 수 있음 (설정 → 공통 → 압축)")
     if not HW and int(s["compress_concurrency"]) + int(s["chzzk_compress_concurrency"]) > max(2, cores // 2):  # 코어 절반 넘게 압축에 쓰면
         w.append(f"CPU 로 동시에 압축 {int(s['compress_concurrency']) + int(s['chzzk_compress_concurrency'])}개는 이 서버(코어 {cores}개)에 많습니다 "
                  "→ 생방송 녹화 · 다운로드가 느려질 수 있음 (설정 → YouTube / 치지직 → 동시 압축)")
@@ -2506,7 +2568,7 @@ def status():
         "compress_concurrency": int(s["compress_concurrency"]), "chzzk_compress_concurrency": int(s["chzzk_compress_concurrency"]),
         "disks": disks, "versions": VERSIONS, "cookies": {p: os.path.exists(f) for p, f in COOKIE_FILES.items()},
         "app_version": APP_VERSION, "updates": STATE.get("updates"),
-        "hw": {HW_NAME[h]: sorted(c) for h, c in HW.items()},
+        "hw": {HW_NAME[h]: sorted(c) for h, c in HW.items()}, "gpu_bench": STATE.get("gpu_bench"),
         # 탭(플랫폼)마다 고른 화질의 코덱으로 실제 쓰일 장치 (예전엔 안 쓰는 공통 화질 기준이라 틀리게 보였음)
         "hw_use": {p: "압축 안 함" if (r := resolve(s, {k: s[f"{p}_{k}"] for k in OVERRIDES}))["codec"] == "none"
                    else f"{r['codec'].upper()} · {HW_NAME[encoder_for(r)]}" for p in PLATFORMS},

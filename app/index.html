@@ -506,7 +506,7 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '⚠ 확인해 볼 설정': '⚠ Settings to check', '진단 파일 받기': 'Download diagnostics', '로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만': 'Logs, status, settings and active jobs in one file (no login info)',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '품질 검사': 'Quality check', '이상 없음': 'No issues', '(10초 넘는 화면 멈춤 · 무음 없음)': '(no freeze or silence over 10s)', '화면 멈춤': 'Frozen video', '무음': 'Silence', '측정:': 'Measured:', '동시에 녹화하면서 압축 권장': 'recommended concurrent live GPU compressions', '⚠ 확인해 볼 설정': '⚠ Settings to check', '진단 파일 받기': 'Download diagnostics', '로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만': 'Logs, status, settings and active jobs in one file (no login info)',
   '끊긴 녹화는 다시보기로 메우기 (치지직)': 'Fill recording gaps with the replay (Chzzk)', '켜기 (끊겼던 방송은 다시보기도 받음)': 'On (also download the replay of interrupted streams)',
   '다시보기를 받은 뒤 끊긴 녹화본': 'Interrupted recording after the replay is downloaded', '그대로 두기': 'Keep', '지우기 (다시보기만 남김)': 'Delete (keep only the replay)',
   '녹화가 모두 끝나면 자동으로 업데이트합니다 (상태 → 최근 활동에 표시)': 'Will update automatically when all recordings end (shown in recent activity)', '끄기 · 녹화 후 압축 (가장 안정적 · 추천)': 'Off · compress after recording (most stable · recommended)', '그래픽카드로, 한계면 CPU 로': 'GPU, CPU when maxed out',
@@ -1137,7 +1137,7 @@ async function loadStatus() {
     ['실행 환경', esc(st.env || '-')],
     ...(st.usage?.length ? [['채널별 용량', det('usage', '많이 차지하는 채널 보기',  // 기본은 접어 둠
       st.usage.map(u => `<div class="urow"><span translate="no">${esc(u.name)}</span><span class="mute">${size(u.size)} · ${u.n}개</span></div>${meter(u.size / st.usage[0].size * 100)}`).join(''))]] : []),
-    ['하드웨어 가속', `${PLATFORMS.map(p => `${PLAT[p].name} <b>${esc(st.hw_use[p])}</b>`).join(' · ')}${why.length ? det('hw', '하드웨어 가속 안 되는 이유', `<div class="mute">${why.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div>`) : ''}`],
+    ['하드웨어 가속', `${PLATFORMS.map(p => `${PLAT[p].name} <b>${esc(st.hw_use[p])}</b>`).join(' · ')}${st.gpu_bench ? `<div class="mute">측정: ${esc(st.gpu_bench.hw)} ${esc(st.gpu_bench.codec)} 1080p60 압축 ${st.gpu_bench.fps}fps → 동시에 녹화하면서 압축 권장 ${st.gpu_bench.suggest}개</div>` : ''}${why.length ? det('hw', '하드웨어 가속 안 되는 이유', `<div class="mute">${why.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div>`) : ''}`],
     ['로그인', `YouTube ${st.cookies.youtube ? dot('') + '됨' : dot('warn') + '안 됨'} · 치지직 ${st.cookies.chzzk ? dot('') + '됨' : dot('warn') + '안 됨'}`],
     ['동시 개수', `유튜브 ${st.concurrency} · 치지직 ${st.chzzk_concurrency} <span class="mute">(생방송 ${st.live_concurrency} · ${st.chzzk_live_concurrency} · 압축 ${st.compress_concurrency} · ${st.chzzk_compress_concurrency})</span>`],
     ['버전', `yt-dlp ${esc(ver(st.versions['yt-dlp']))} · ffmpeg ${esc(ver(st.versions.ffmpeg))} · deno ${esc(ver(st.versions.deno))}`],
@@ -1284,6 +1284,9 @@ async function detail(id) {
         <dt>조회수</dt><dd>${m.view_count?.toLocaleString() ?? '-'}${m.like_count ? ` · 좋아요 ${m.like_count.toLocaleString()}` : ''}</dd>
         <dt>원본</dt><dd>${esc(m.resolution || '-')}${m.fps ? ` ${m.fps}fps` : ''} · ${esc(m.vcodec || '-')} / ${esc(m.acodec || '-')} · ${m.orig_est ? '약 ' : ''}${size(m.orig_size)}${m.orig_est ? ' <span class="mute">(받으면서 압축해 원본은 저장 안 함 · 방송 비트레이트로 추정)</span>' : ''}</dd>
         <dt>저장</dt><dd>${m.quality ? `<span class="tag">${esc(qName(m.quality))}</span>` : ''}${c ? `${c.codec.toUpperCase()} CRF ${esc(c.crf)} (${esc(c.preset)}${c.encoder ? ' · ' + esc(c.encoder) : ''}) · ${size(m.size)} <span class="mute">(${Math.round((1 - m.size / m.orig_size) * 100)}% 절약)</span>` : (m.size ? `원본 그대로 · ${size(m.size)}` : '-')}${m.compress_error ? ' <span class="err">(압축 실패 → 원본 그대로 저장 · 나중에 압축 가능)</span>' : ''}</dd>
+        ${m.qc ? `<dt>품질 검사</dt><dd>${!m.qc.freeze.length && !m.qc.silence.length ? '이상 없음 <span class="mute">(10초 넘는 화면 멈춤 · 무음 없음)</span>'
+          : [['화면 멈춤', m.qc.freeze], ['무음', m.qc.silence]].filter(([, l]) => l.length).map(([k, l]) =>
+            `<div>${k} ${l.length}번 <span class="mute">— ${l.slice(0, 5).map(([a, b]) => `${dur(a) === '-' ? '00:00' : dur(a)}부터 ${b}초`).join(' · ')}${l.length > 5 ? ' …' : ''}</span></div>`).join('')}</dd>` : ''}
         <dt>자막</dt><dd>${m.subtitles?.length ? m.subtitles.map(l => `<span class="tag">${esc(l)}</span>`).join('') : '-'}</dd>
         <dt>경로</dt><dd class="mute" translate="no">${esc((j.filepath || '-').replace(/^\/host\//, '/'))}</dd>
         <dt>링크</dt><dd><a href="${esc(j.url)}" target="_blank" rel="noopener" style="color:var(--acc)">${esc(j.url)}</a>${m.source_gone ? `<div class="mute">원본 사라짐 — ${date(new Date(m.source_gone * 1000).toISOString().slice(0, 10).replace(/-/g, ''))} 점검 때 채널 목록에 없었습니다 (삭제 · 비공개 등). 이 파일은 받아 둔 보관본입니다.</div>` : ''}</dd>

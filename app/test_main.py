@@ -865,4 +865,16 @@ main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('concurrency', '20')"
 import zipfile
 zf = zipfile.ZipFile(io.BytesIO(main.diag().body))
 assert set(zf.namelist()) == {"logs.txt", "status.json", "settings.json", "jobs_active.json"} and "cookie" not in zf.read("settings.json").decode().lower()
+# 녹화 품질 검사: 10초 넘는 화면 멈춤 · 무음 구간 기록
+qd = tempfile.mkdtemp()
+main.subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=s=320x240:r=10:d=8", "-f", "lavfi", "-i", "color=c=gray:s=320x240:r=10:d=15",
+                     "-f", "lavfi", "-i", "sine=d=8", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=15",
+                     "-filter_complex", "[0:v][2:a][1:v][3:a]concat=n=2:v=1:a=1[v][a]", "-map", "[v]", "-map", "[a]", "-g", "10", f"{qd}/qc.mp4"], check=True)
+main.q("INSERT INTO jobs(video_id,url,title,opts,live,status,filepath,meta) VALUES('chzzk-live-9801','u','품질','{}',1,'done',?,'{}')", (f"{qd}/qc.mp4",))
+qj = main.q("SELECT id FROM jobs WHERE video_id='chzzk-live-9801'")[0]["id"]
+main.quality_check(qj)
+qc = json.loads(main.q("SELECT meta FROM jobs WHERE id=?", (qj,))[0]["meta"])["qc"]
+assert len(qc["freeze"]) == 1 and 7 <= qc["freeze"][0][0] <= 10 and len(qc["silence"]) == 1 and qc["silence"][0][1] >= 13
+# 그래픽카드가 없으면 측정 안 함 (기본값 그대로)
+main.gpu_bench(); assert "gpu_bench" not in main.STATE
 print("queue page ok")
