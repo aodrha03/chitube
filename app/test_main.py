@@ -247,10 +247,12 @@ assert main.ADULT_RE.search("ERROR: [chzzk:video] 1: Failed to download MPD mani
 # 생방송 녹화로 받은 방송의 다시보기는 건너뜀 (liveOpenDate == 녹화 때 openDate)
 main.q("UPDATE jobs SET live_open='2026-10-21 15:48:03', status='done' WHERE video_id='chzzk-live-7'")  # 완료된 녹화만
 real_api, main.chzzk_api = main.chzzk_api, lambda path: {"liveOpenDate": "2026-10-21 15:48:03" if path.endswith("/901") else "2026-10-20 10:00:00"}
+main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('gap_fill', '0')")  # 이 방송은 끊겼던 방송 → 메우기를 끄고 건너뛰기만 시험
 assert main.recorded_replay("a" * 32, {"videoNo": 901, "videoType": "REPLAY"})
 assert not main.recorded_replay("a" * 32, {"videoNo": 902, "videoType": "REPLAY"})
 assert not main.recorded_replay("a" * 32, {"videoNo": 903, "videoType": "UPLOAD"})
 assert not main.recorded_replay("b" * 32, {"videoNo": 904, "videoType": "REPLAY"})  # 녹화 없는 채널은 상세 조회 안 함
+main.q("DELETE FROM settings WHERE key='gap_fill'")
 main.chzzk_api = real_api
 # 쿠키: yt-dlp 엔 복사본만 줌 → 끝날 때 다시 써도 원본(다시 로그인한 새 쿠키)은 그대로
 ck = main.COOKIE_FILES["youtube"]
@@ -825,4 +827,42 @@ assert fp.wait(10) != 0 and wj in main.KILLED  # 멈춘 녹화의 ffmpeg 를 끝
 main.KILLED.discard(wj); main.ACTIVE.discard(wj); main.LIVE.pop(wj, None)
 main.q("UPDATE jobs SET status='done' WHERE id=?", (wj,))
 assert main.TRANSIENT_RE.search("진행이 멈춰서 정리함: ERROR: aria2c exited with code -9") and not main.TRANSIENT_RE.search("Video unavailable")
+# 1. 녹화가 끊겼던 방송은 다시보기로 빈 곳 메움 (다시보기 구독 · 생방송만 구독 둘 다)
+gz = "7" * 32
+main.q("INSERT INTO jobs(video_id,url,title,opts,live,status,live_open,cut,finished,filepath) VALUES('chzzk-live-9701',?,'끊긴 방송','{}',1,'done','2026-10-27 10:00:00',123,?,?)",
+       (f"https://chzzk.naver.com/live/{gz}", main.time.time(), f"{td}/gap [chzzk-live-9701].mp4"))
+open(f"{td}/gap [chzzk-live-9701].mp4", "wb").write(b"x")
+real_api = main.chzzk_api
+main.chzzk_api = lambda path: {"data": [{"videoNo": 7001, "videoType": "REPLAY", "videoTitle": "끊긴 방송 다시보기", "duration": 3600}]} if "/videos?" in path \
+    else {"liveOpenDate": "2026-10-27 10:00:00"}
+assert not main.recorded_replay(gz, {"videoNo": 7002, "videoType": "REPLAY", "duration": 3600}) and main.GAP_OPEN["7002"] == "2026-10-27 10:00:00"
+main.q("INSERT INTO subs(url, name, kinds) VALUES(?, 'gapsub', 'streams')", (f"https://chzzk.naver.com/{gz}",))
+gsub = main.q("SELECT * FROM subs WHERE name='gapsub'")[0]
+assert main.gap_replays(gsub) == 1 and main.gap_replays(gsub) == 0  # 한 번만
+assert main.q("SELECT live_open FROM jobs WHERE video_id='7001'")[0]["live_open"] == "2026-10-27 10:00:00"
+main.chzzk_api = real_api
+main.drop_recordings("2026-10-27 10:00:00")  # 설정 '지우기'일 때: 다시보기를 받은 뒤 끊긴 녹화본 삭제
+assert not main.q("SELECT 1 FROM jobs WHERE video_id='chzzk-live-9701'") and not os.path.exists(f"{td}/gap [chzzk-live-9701].mp4")
+main.q("UPDATE jobs SET status='done' WHERE video_id='7001'")
+# 2. 녹화 중엔 업데이트(재시작)를 바로 하지 않음 → 끝난 뒤 자동으로
+main.q("INSERT INTO jobs(video_id,url,title,opts,live,status) VALUES('chzzk-live-9702','https://chzzk.naver.com/live/x','녹화 중','{}',1,'downloading')")
+try:
+    main.updates_apply(); assert False
+except main.HTTPException as e:
+    assert e.status_code == 409
+assert main.updates_apply(after=True) == {"after": True} and main.STATE.pop("restart_after")
+# 5. 부하 보호: 3분째 95% 이상 + 녹화 중이면 새 압축은 대기
+main.LOADS.extend([{"cpu": 99, "gpus": []}] * 3)
+assert main.overloaded()
+main.q("UPDATE jobs SET status='done' WHERE video_id='chzzk-live-9702'")
+assert not main.overloaded()  # 녹화가 없으면 압축을 막지 않음
+main.LOADS.clear()
+# 4. 위험한 설정 안내
+main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('concurrency', '3')")
+assert any("유튜브 동시 다운로드 3개" in w for w in main.status()["warnings"])
+main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('concurrency', '20')")
+# 3. 진단 파일
+import zipfile
+zf = zipfile.ZipFile(io.BytesIO(main.diag().body))
+assert set(zf.namelist()) == {"logs.txt", "status.json", "settings.json", "jobs_active.json"} and "cookie" not in zf.read("settings.json").decode().lower()
 print("queue page ok")

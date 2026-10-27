@@ -71,6 +71,7 @@
   .filters { display:flex; gap:4px; flex-wrap:wrap; }
   .filters button { padding:4px 10px; font-size:13px; border-radius:16px; }
   .filters button.on { background:var(--acc); border-color:var(--acc); color:var(--acc-fg, #fff); }
+  .warnbox { border:1px solid var(--warn); border-radius:8px; padding:10px 14px; margin-bottom:12px; } .warnbox ul { margin:6px 0 0; padding-left:18px; } .warnbox li { margin:2px 0; }
   .recomp { display:inline-flex; gap:6px; align-items:center; } .recomp select { width:auto; }
   .selbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; margin-bottom:12px; border:1px solid var(--acc); border-radius:8px; background:var(--tint); }
   .pager { display:flex; gap:4px; align-items:center; justify-content:center; flex-wrap:wrap; margin-top:16px; }
@@ -194,6 +195,7 @@
   <div data-page="chzzk" data-platform="chzzk" hidden></div>
 
   <div data-page="status" class="status" hidden>
+    <div id="warns"></div>
     <div id="stats" class="kpis"></div>
     <div class="cols">
       <section>
@@ -211,7 +213,8 @@
       <section><h2 style="color:#00ffa3"><i class="czi"></i>치지직 새 영상 확인</h2><div id="sched-chzzk" class="sched"></div></section>
     </div>
     <div class="cols">
-      <section><div class="row"><h2 style="margin:0">최근 활동</h2><a href="/api/logs"><button class="sm" title="최근 7일 기록 (문제 원인 찾기용)">로그 파일 받기</button></a></div><div id="log" class="log"></div></section>
+      <section><div class="row"><h2 style="margin:0">최근 활동</h2><span><a href="/api/logs"><button class="sm" title="최근 7일 기록 (문제 원인 찾기용)">로그 파일 받기</button></a>
+        <a href="/api/diag"><button class="sm" title="로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만">진단 파일 받기</button></a></span></div><div id="log" class="log"></div></section>
       <section><div class="row"><h2>최근 오류</h2><button class="sm" id="errhide" onclick="hideErrors()" hidden>모두 숨기기</button></div><div id="errors" class="log"></div></section>
     </div>
   </div>
@@ -241,6 +244,8 @@
         <label>다운로드 점검<select name="audit_hours"><option value="">끄기</option><option value="4">하루 1번 (새벽 4시)</option><option value="4,16">하루 2번 (새벽 4시 · 오후 4시)</option></select></label>
         <label>속도 제한 (예: 10M · 비우면 무제한)<input name="rate_limit" placeholder="무제한"></label>
         <label>로그인 갱신 안내 (일 · 0 = 끔)<input name="login_refresh_days" type="number" min="0" max="365"></label>
+        <label>끊긴 녹화는 다시보기로 메우기 (치지직)<select name="gap_fill"><option value="1">켜기 (끊겼던 방송은 다시보기도 받음)</option><option value="0">끄기</option></select></label>
+        <label>다시보기를 받은 뒤 끊긴 녹화본<select name="gap_keep_rec"><option value="1">그대로 두기</option><option value="0">지우기 (다시보기만 남김)</option></select></label>
         <label>녹화 멈춤 판단 (초 · 이만큼 안 커지면 저장하고 이어서 녹화)<input name="stall_sec" type="number" min="20" max="600"></label>
         <label>끊긴 녹화 자동 합치기<select name="auto_merge"><option value="1">켜기 (방송이 끝나면 조각을 한 파일로)</option><option value="0">끄기 (영상 정보 창에서 직접)</option></select></label>
         <label>유튜브 광고 구간 챕터 표시<select name="sponsorblock"><option value="0">끄기</option><option value="1">켜기 (SponsorBlock · 표시만, 자르지 않음)</option></select></label>
@@ -501,7 +506,10 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '끄기 · 녹화 후 압축 (가장 안정적 · 추천)': 'Off · compress after recording (most stable · recommended)', '그래픽카드로, 한계면 CPU 로': 'GPU, CPU when maxed out',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '⚠ 확인해 볼 설정': '⚠ Settings to check', '진단 파일 받기': 'Download diagnostics', '로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만': 'Logs, status, settings and active jobs in one file (no login info)',
+  '끊긴 녹화는 다시보기로 메우기 (치지직)': 'Fill recording gaps with the replay (Chzzk)', '켜기 (끊겼던 방송은 다시보기도 받음)': 'On (also download the replay of interrupted streams)',
+  '다시보기를 받은 뒤 끊긴 녹화본': 'Interrupted recording after the replay is downloaded', '그대로 두기': 'Keep', '지우기 (다시보기만 남김)': 'Delete (keep only the replay)',
+  '녹화가 모두 끝나면 자동으로 업데이트합니다 (상태 → 최근 활동에 표시)': 'Will update automatically when all recordings end (shown in recent activity)', '끄기 · 녹화 후 압축 (가장 안정적 · 추천)': 'Off · compress after recording (most stable · recommended)', '그래픽카드로, 한계면 CPU 로': 'GPU, CPU when maxed out',
   '녹화 멈춤 판단 (초 · 이만큼 안 커지면 저장하고 이어서 녹화)': 'Recording stall limit (sec · save and continue in a new file)', '로그 파일 받기': 'Download log file', '최근 7일 기록 (문제 원인 찾기용)': 'Last 7 days (for troubleshooting)', '그래픽카드로 동시에 녹화하면서 압축 (넘는 생방송은 원본 녹화 → 끝난 뒤 압축)': 'Live streams compressed on the GPU at once (extra streams record original → compress after)', '압축 방식 · 동시 압축 개수는 YouTube / 치지직 탭에서 따로 정합니다': 'Compression method and concurrent compressions are set in the YouTube / Chzzk tabs',
   '동시 다운로드와 따로 · 압축하는 동안에도 다음 영상을 받음': 'Separate from downloads · the next video downloads while compressing',
   '동시 압축 (다 받은 뒤 · 녹화 후 · 나중에 압축)': 'Concurrent compressions (after download · after recording · compress later)',
@@ -1098,6 +1106,7 @@ async function loadStatus() {
   const [st, subs, au] = await Promise.all([api('/api/status'), api('/api/subs'), api('/api/audit')]);
   renderAudit(au);
   renderUpdates(st);
+  setHTML(document.getElementById('warns'), (st.warnings || []).length ? `<div class="warnbox"><b>⚠ 확인해 볼 설정</b><ul>${st.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : '');
   SUBS = Object.fromEntries(subs.map(s => [s.id, s]));
   const dead = Object.entries(st.threads).filter(([, ok]) => !ok).map(([n]) => n);
   const c = st.counts, speed = st.active.reduce((n, a) => n + (a.speed || 0), 0);
@@ -1204,7 +1213,14 @@ async function checkUpdates(b) {
 
 async function applyUpdates() {
   if (!confirm('컨테이너를 재시작해서 yt-dlp/deno 를 최신으로 설치할까요?\n진행 중인 다운로드는 재시작 후 이어받습니다.')) return;
-  await api('/api/updates/apply', { method: 'POST' }).catch(() => {});
+  const r = await fetch('/api/updates/apply', { method: 'POST' }).catch(() => null);
+  if (r?.status === 409) {  // 생방송 녹화 중 → 재시작하면 녹화가 끊김
+    const why = (await r.json()).detail;
+    if (confirm(`${why}. 지금 재시작하면 녹화가 끊깁니다.\n\n녹화가 모두 끝나면 자동으로 업데이트할까요?\n(취소를 누르면 다음 확인 창에서 지금 바로 할지 고를 수 있습니다)`))
+      return api('/api/updates/apply?after=1', { method: 'POST' }).then(() => alert('녹화가 모두 끝나면 자동으로 업데이트합니다 (상태 → 최근 활동에 표시)'));
+    if (!confirm('녹화를 끊고 지금 바로 업데이트할까요? (그때까지 녹화분은 보존, 재시작 후 새 파일로 이어서 녹화)')) return;
+    await api('/api/updates/apply?now=1', { method: 'POST' }).catch(() => {});
+  }
   document.getElementById('wait').textContent = '재시작 중... 잠시 후 자동으로 다시 연결됩니다';
 }
 

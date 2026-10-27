@@ -68,6 +68,8 @@ DEFAULTS = {
     "chzzk_concurrency": "2",   # 치지직 동시 다운로드 개수 (1~MAX_PARALLEL, 봇 차단 없음)
     "live_concurrency": "2",    # 유튜브 생방송 동시 녹화 개수 (1~MAX_PARALLEL)
     "chzzk_live_concurrency": "5",  # 치지직 생방송 동시 녹화 개수 (1~MAX_PARALLEL)
+    "gap_fill": "1",            # 1 = 녹화가 끊겼던 치지직 방송은 다시보기도 받아 빈 곳을 메움
+    "gap_keep_rec": "1",        # 1 = 다시보기를 받은 뒤에도 끊긴 녹화본 그대로 둠 | 0 = 녹화본은 지움 (다시보기만 남김)
     "stall_sec": "45",          # 생방송 녹화가 이만큼(초) 안 커지면 멈춘 것으로 보고 저장 → 새 파일로 이어서 녹화
     "gpu_live_max": "3",        # 그래픽카드로 동시에 녹화하면서 압축할 생방송 최대 개수. 넘는 방송은 원본으로 녹화 → 끝난 뒤 압축
     "compress_concurrency": "1",        # 유튜브 동시 압축 개수 (다 받은 뒤 압축 · 녹화 후 압축 · 나중에 압축). 다운로드 개수와 따로
@@ -178,7 +180,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.4.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.5.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -461,9 +463,13 @@ def chzzk_entries(url, limit=None):
         vods, page, pages = vods + c["data"], page + 1, c.get("totalPages") or 1
     vods = [v for v in vods[:limit] if not recorded_replay(cid, v)]
     return [{"id": str(v["videoNo"]), "url": f"https://chzzk.naver.com/video/{v['videoNo']}",
-             "title": v.get("videoTitle"), "thumbnail": v.get("thumbnailImageUrl"), "duration": v.get("duration")} for v in vods], name, "videos"
+             "title": v.get("videoTitle"), "thumbnail": v.get("thumbnailImageUrl"), "duration": v.get("duration"),
+             "open_date": GAP_OPEN.get(str(v["videoNo"]))} for v in vods], name, "videos"
 
 
+# 녹화가 끊겼던 방송: 끊긴 시각이 있거나, 이어서 녹화한 조각(-p2…)이 있거나, 조각을 합친 녹화
+CUT_SQL = "(cut IS NOT NULL OR video_id LIKE 'chzzk-live-%-p%' OR COALESCE(json_extract(meta, '$.merged'), 1) > 1)"
+GAP_OPEN = {}  # 빈 곳을 메우려고 받는 다시보기 번호 → 그 방송 시작 시각 (다시보기 작업의 live_open 으로 저장)
 REPLAY_SEEN = {}  # 다시보기 번호 → 생방송 녹화로 이미 받은 방송인지 (확인 결과 기억, 매번 API 안 부르게)
 
 
@@ -480,11 +486,15 @@ def recorded_replay(cid, v):
             opened = chzzk_api(f"/v3/videos/{no}").get("liveOpenDate")
         except Exception:
             return False
-        rec = q("SELECT filepath, meta, status FROM jobs WHERE url=? AND live_open=? AND status IN ('done','queued','downloading')", (live_url, opened))
+        rec = q(f"SELECT filepath, meta, status, {CUT_SQL} AS cut FROM jobs WHERE url=? AND live_open=? AND status IN ('done','queued','downloading')", (live_url, opened))
         if any(r["status"] != "done" for r in rec):  # 녹화 · 압축이 아직 안 끝남 → 이번엔 받지 않고 다음 확인 때 다시 판단 (기억 안 함)
             return True
         if not rec:
             REPLAY_SEEN[no] = False
+            return False
+        if any(r["cut"] for r in rec) and settings()["gap_fill"] == "1":  # 녹화가 끊겼던 방송 → 다시보기로 빈 곳 메움
+            REPLAY_SEEN[no], GAP_OPEN[no] = False, opened
+            log(f"녹화가 끊겼던 방송이라 다시보기도 받아 빈 곳을 메움: {v.get('videoTitle')}")
             return False
         # 녹화가 방송 전체를 담았을 때만 건너뜀. 늦게 발견했거나 끊겨서 빠진 구간이 있으면(다시보기의 90% 미만) 다시보기도 받음
         got = sum(json.loads(r["meta"] or "{}").get("duration") or (probe_duration(r["filepath"]) if r["filepath"] and os.path.isfile(r["filepath"]) else 0)
@@ -1018,6 +1028,8 @@ def run_job(job, s, dl=None):
         q("UPDATE jobs SET status='done', progress=100, filepath=?, title=?, meta=?, finished=? WHERE id=?",
           (path, info.get("title"), json.dumps(meta, ensure_ascii=False), time.time(), jid))
         log(f"완료: {info.get('title')}")
+        if cz and not job["live"] and job.get("live_open") and settings()["gap_keep_rec"] == "0":
+            drop_recordings(job["live_open"])  # 다시보기로 빈 곳을 메움 → 끊긴 녹화본은 지움 (설정)
     except Exception as e:
         msg = str(e)
         if jid in KILLED:  # 감시자가 멈춰서 정리함 → 일시적 오류로 (조금 뒤 다시)
@@ -1329,15 +1341,29 @@ def compress_turn(jid, p, dl=None):
     if dl:
         dl.set()
     LIVE[jid] = {"status": "compressing", "progress": 0, "waiting": True}
+    told = False
     while True:
+        if busy := overloaded():  # 부하가 높으면 새 압축은 잠시 대기 (이미 압축 중인 건 그대로)
+            if not told:
+                log(f"CPU · 그래픽카드 부하가 높아 압축을 잠시 미룸 (녹화 우선): {(q('SELECT title FROM jobs WHERE id=?', (jid,)) or [{}])[0].get('title')}")
+                told = True
         with COMP_LOCK:
-            if sum(COMPRESSING.get(j) == p for j in COMP_RUN) < int(settings()[("chzzk_" if p == "chzzk" else "") + "compress_concurrency"]):
+            if not busy and sum(COMPRESSING.get(j) == p for j in COMP_RUN) < int(settings()[("chzzk_" if p == "chzzk" else "") + "compress_concurrency"]):
                 COMP_RUN.add(jid)
                 LIVE[jid] = {"status": "compressing", "progress": 0}
                 return
         if jid in CANCEL:
             raise yt_dlp.utils.DownloadCancelled("사용자가 취소함")
         time.sleep(2)
+
+
+LOADS = collections.deque(maxlen=3)  # 최근 3분 부하 (1분마다)
+WD_CPU = [0, 0]  # 감시자용 CPU 사용률 기준점 (상태 화면 것과 따로 — 같이 쓰면 사용률 계산이 서로 꼬임)
+
+
+def overloaded():
+    """CPU 또는 그래픽카드 압축기가 3분째 95% 이상이고 생방송을 녹화 중이면 True → 새 압축은 잠시 기다림 (녹화에 자원 양보)"""
+    return len(LOADS) == 3 and all(l["cpu"] >= 95 or any(g["enc"] >= 95 for g in l["gpus"]) for l in LOADS) and live_recording() > 0
 
 
 def compress_done(jid):
@@ -1565,8 +1591,49 @@ def worker_step(slot, live):
             time.sleep(wait)
 
 
+GAP_CHECKED = set()  # 빈 곳 메우기로 이미 확인한 다시보기 번호
+
+
+def gap_replays(sub):
+    """생방송만 구독(다시보기는 안 받음)한 치지직 채널: 최근 3일 안에 녹화가 끊겼던 방송이 있으면 그 방송의 다시보기만 찾아 받음 → 받은 개수"""
+    cid = CHZZK_CH_RE.match(sub["url"].strip()).group(1)
+    live_url = f"https://chzzk.naver.com/live/{cid}"
+    opens = {r["live_open"] for r in q(f"""SELECT DISTINCT live_open FROM jobs WHERE url=? AND live=1 AND status='done' AND live_open IS NOT NULL
+                                          AND finished > ? AND {CUT_SQL}""", (live_url, time.time() - 3 * 86400))}
+    opens -= {r["live_open"] for r in q("SELECT live_open FROM jobs WHERE url LIKE 'https://chzzk.naver.com/video/%' AND live_open IS NOT NULL")}
+    if not opens:
+        return 0
+    added = 0
+    for v in chzzk_api(f"/v1/channels/{cid}/videos?sortType=LATEST&pagingType=PAGE&page=0&size=10")["data"]:
+        no = str(v["videoNo"])
+        if v.get("videoType") != "REPLAY" or no in GAP_CHECKED:
+            continue
+        GAP_CHECKED.add(no)
+        opened = chzzk_api(f"/v3/videos/{no}").get("liveOpenDate")
+        if opened in opens:
+            added += add_entries([{"id": no, "url": f"https://chzzk.naver.com/video/{no}", "title": v.get("videoTitle"),
+                                   "thumbnail": v.get("thumbnailImageUrl"), "duration": v.get("duration"), "open_date": opened}],
+                                 "videos", sub["id"], filt=False)
+            log(f"녹화가 끊겼던 방송 → 다시보기로 빈 곳 메움: {v.get('videoTitle')}")
+    return added
+
+
+def drop_recordings(opened):
+    """다시보기로 빈 곳을 메운 방송의 끊긴 녹화본(조각 전부) 지우기 — 설정 gap_keep_rec=0 일 때"""
+    for r in q("SELECT id, filepath, title FROM jobs WHERE live=1 AND status='done' AND live_open=?", (opened,)):
+        for f in glob.glob(glob.escape(os.path.splitext(r["filepath"])[0]) + ".*") if r["filepath"] else []:
+            os.remove(f)
+        q("DELETE FROM jobs WHERE id=?", (r["id"],))
+        log(f"다시보기로 메웠으니 끊긴 녹화본 삭제: {r['title']}")
+
+
 def check_sub(sub, s):
     found, err = 0, None
+    if s["gap_fill"] == "1" and CHZZK_CH_RE.match(sub["url"].strip()) and "streams" in (sub["kinds"] or "") and "videos" not in (sub["kinds"] or ""):
+        try:
+            found += gap_replays(sub)
+        except Exception as e:
+            log(f"다시보기로 빈 곳 메우기 확인 실패: {sub['name']} — {str(e)[:100]}")
     for u in sub_urls(sub):
         try:
             # 재생목록은 보통 오래된 순이라 새 영상이 끝에 붙음 → 전체를 봄 (이미 있는 건 건너뜀). ponytail: 아주 긴 재생목록은 확인이 느림
@@ -1722,6 +1789,10 @@ def watchdog_step():
     """1분마다 '받는 중' 작업 전부 확인: 진행(받은 양 · 압축 %)이 정해진 시간 동안 전혀 안 바뀌면 그 작업의 ffmpeg · aria2c 를 끝냄
     → 생방송은 녹화분 보존 + 이어서 녹화, 다운로드는 조금 뒤 다시 받기 (작업별 감시가 어떤 이유로든 죽어도 살아남)
     스레드가 사라진 채 '받는 중'으로 남은 작업은 대기열로 되돌림"""
+    LOADS.append(load(WD_CPU))  # 부하 보호용 (1분마다)
+    if STATE.get("restart_after") and not live_recording():
+        log("녹화가 모두 끝나 업데이트(재시작)합니다")
+        threading.Timer(1, os._exit, (0,)).start()
     now = time.time()
     rows = q("SELECT id, video_id, title, live FROM jobs WHERE status='downloading'")
     for r in rows:
@@ -1835,10 +1906,13 @@ def start(name, f, *args):
 async def lifespan(app):
     os.makedirs(CONFIG, exist_ok=True)
     init_db()
+    redo = {}  # 녹화는 끝나고 압축을 기다리던 녹화 → 재시작 후 같은 화질로 이어서 압축
     for j in q("SELECT * FROM jobs WHERE status='downloading' AND live=1"):
-        if j["filepath"] and os.path.isfile(j["filepath"]):  # 녹화는 끝나고 압축을 기다리던 중 → 녹화본 그대로 완료 (나중에 압축 가능)
+        if j["filepath"] and os.path.isfile(j["filepath"]):  # 녹화는 끝나고 압축을 기다리던 중 → 녹화본으로 완료 후 다시 압축 차례로
             q("UPDATE jobs SET status='done', finished=? WHERE id=?", (time.time(), j["id"]))
-            log(f"재시작으로 압축 못 한 녹화는 원본 그대로 보존 (나중에 압축 가능): {j['title']}")
+            if (qu := job_settings(j)["quality"]) in QUALITY:
+                redo.setdefault(qu, []).append(j["id"])
+            log(f"재시작으로 끊긴 녹화 압축 → 이어서 압축: {j['title']}")
         else:  # 재시작으로 끊긴 녹화: 녹화분 보존, 새 파일로 다시 녹화
             keep_partial(j["video_id"], job_settings(j))
     q("UPDATE jobs SET status='queued' WHERE status='downloading'")  # 재시작 시 중단된 작업 복구
@@ -1853,6 +1927,8 @@ async def lifespan(app):
     start("치지직 방송 감시", forever, "치지직 방송 감시", chzzk_watch_step)
     start("작업 감시", forever, "작업 감시", watchdog_step)
     prune_logs()
+    for qu, ids in redo.items():
+        recompress(Recompress(ids=ids, quality=qu))
     threading.Thread(target=backfill_nfo, daemon=True).start()
     log("시작됨")
     yield
@@ -2342,13 +2418,14 @@ def delete_sub(sid: int):
 CPU_PREV = [0, 0]  # 직전 /proc/stat (유휴, 전체) → 상태 화면 새로고침 사이의 CPU 사용률
 
 
-def load():
-    """서버 CPU·메모리 사용률(컨테이너에서도 서버 전체 값), 엔비디아 GPU 사용률(nvidia-smi 있을 때만)"""
+def load(prev=None):
+    """서버 CPU·메모리 사용률(컨테이너에서도 서버 전체 값), 엔비디아 GPU 사용률(nvidia-smi 있을 때만). prev = 직전 측정 기준점"""
+    prev = CPU_PREV if prev is None else prev
     with open("/proc/stat") as f:
         v = [int(x) for x in f.readline().split()[1:]]
     idle, total = v[3] + v[4], sum(v)
-    d_idle, d_total = idle - CPU_PREV[0], total - CPU_PREV[1]
-    CPU_PREV[:] = [idle, total]
+    d_idle, d_total = idle - prev[0], total - prev[1]
+    prev[:] = [idle, total]
     mem = {}
     with open("/proc/meminfo") as f:
         for line in f:
@@ -2381,6 +2458,28 @@ def errors_seen(body: Ids):
     ids = body.ids
     n = len(q(f"UPDATE jobs SET err_seen=1 WHERE {NEW_ERR}" + (f" AND id IN ({','.join('?' * len(ids))})" if ids else "") + " RETURNING id", tuple(ids or ())))
     return {"hidden": n}
+
+
+def setting_warnings(s, disks):
+    """상태 화면에 보일 '위험한 설정' 안내 (실제 사례: 보급형 그래픽카드 + 생방송 동시 녹화하면서 압축 + 압축 5개 → 녹화 멈춤)"""
+    w, cores = [], os.cpu_count() or 1
+    gpu_live = [p for p in PLATFORMS if (s[f"{p}_live_compress"] or s["live_compress"]) != "off"] if HW else []
+    if gpu_live and int(s["gpu_live_max"]) > 3:
+        w.append(f"그래픽카드로 동시에 녹화하면서 압축 {s['gpu_live_max']}개: 보급형 카드(RTX A400 · GTX 1650 등)는 1080p 생방송 2~3개가 한계라 "
+                 "넘으면 녹화가 멈출 수 있습니다 (설정 → 공통 → 압축)")
+    if not HW and int(s["compress_concurrency"]) + int(s["chzzk_compress_concurrency"]) > max(2, cores // 2):  # 코어 절반 넘게 압축에 쓰면
+        w.append(f"CPU 로 동시에 압축 {int(s['compress_concurrency']) + int(s['chzzk_compress_concurrency'])}개는 이 서버(코어 {cores}개)에 많습니다 "
+                 "→ 생방송 녹화 · 다운로드가 느려질 수 있음 (설정 → YouTube / 치지직 → 동시 압축)")
+    if int(s["concurrency"]) >= 2:
+        w.append(f"유튜브 동시 다운로드 {s['concurrency']}개: 2개 이상은 유튜브 차단(봇 감지) 위험이 큽니다")
+    if float(s["min_free_gb"]) == 0:
+        w.append("최소 여유 공간이 0 (끔): 디스크가 가득 차면 받던 영상 · 녹화가 깨집니다")
+    for d in disks:
+        if (hours := d["free"] / 3.6e9) < 48:  # 원본 녹화 약 8Mbps = 시간당 3.6GB 기준
+            w.append(f"{d['path'].replace(HOST, '') or '/'} 남은 공간 {d['free'] / 1e9:.0f}GB ≈ 원본 녹화 약 {hours:.0f}시간 분량")
+    if int(s["stall_sec"]) > 120:
+        w.append(f"녹화 멈춤 판단 {s['stall_sec']}초: 길수록 멈췄을 때 빠지는 구간이 깁니다 (기본 45초)")
+    return w
 
 
 @app.get("/api/status")
@@ -2416,6 +2515,7 @@ def status():
         # 확인(숨기기)하지 않은 오류만. '다시 받기 실패 → 기존 파일 보존' 처럼 완료인데 남은 안내도 포함
         "errors": q(f"SELECT id, title, error FROM jobs WHERE {NEW_ERR} ORDER BY id DESC LIMIT 10"),
         "errors_new": q(f"SELECT COUNT(*) n FROM jobs WHERE {NEW_ERR}")[0]["n"],
+        "warnings": setting_warnings(s, disks),
         # 채널별 받은 용량 (많은 순 10개). 구독 이름, 없으면(수동 다운로드) 영상 정보의 채널
         "usage": q("""SELECT COALESCE(s.name, json_extract(j.meta, '$.channel'), '기타') AS name, SUM(json_extract(j.meta, '$.size')) AS size,
                       COUNT(*) AS n FROM jobs j LEFT JOIN subs s ON s.id = j.sub_id WHERE j.status='done' AND json_extract(j.meta, '$.size') > 0
@@ -2682,6 +2782,23 @@ def organize():
     return {"moved": moved}
 
 
+@app.get("/api/diag")
+def diag():
+    """문제 원인 찾기용 한 파일: 로그 · 상태(장치 · 부하 · 디스크 · 진행 중 · 최근 오류) · 설정 · 진행 중인 작업 (로그인 정보 · 쿠키는 넣지 않음)"""
+    import io, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("logs.txt", logs_file().body)
+        z.writestr("status.json", json.dumps(status() | {"recent_loads": list(LOADS), "gpu_live": GPU_LIVE, "compressing": COMPRESSING},
+                                             ensure_ascii=False, indent=1, default=str))
+        z.writestr("settings.json", json.dumps(settings(), ensure_ascii=False, indent=1))
+        z.writestr("jobs_active.json", json.dumps(q("SELECT id, video_id, title, status, live, started, cut, retries, error FROM jobs "
+                                                    "WHERE status IN ('downloading','queued') OR finished > ?", (time.time() - 86400,)),
+                                                  ensure_ascii=False, indent=1))
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename=chitube-diag-{time.strftime('%Y%m%d-%H%M')}.zip"})
+
+
 @app.get("/api/logs")
 def logs_file():
     """최근 LOG_DAYS 일치 로그 파일을 하나로 (문제 원인 찾기용)"""
@@ -2696,10 +2813,21 @@ def updates_check():
     return STATE["updates"]
 
 
+def live_recording():
+    """지금 녹화 중인 생방송 수 (녹화가 끝나고 압축 중인 건 빼고)"""
+    return q(f"SELECT COUNT(*) n FROM jobs WHERE status='downloading' AND live=1 AND id NOT IN ({','.join(map(str, COMPRESSING.copy())) or 0})")[0]["n"]
+
+
 @app.post("/api/updates/apply")
-def updates_apply():
+def updates_apply(after: bool = False, now: bool = False):
     """컨테이너 재시작 → 시작 스크립트가 yt-dlp/deno 를 최신으로 설치. compose 의 restart: unless-stopped 필요.
-    진행 중이던 다운로드는 재시작 후 이어받음."""
+    진행 중이던 다운로드는 재시작 후 이어받음. 녹화 중이면 409 (재시작하면 녹화가 끊김) → after=1: 녹화가 모두 끝나면 자동으로 · now=1: 바로"""
+    if (n := live_recording()) and not now:
+        if not after:
+            raise HTTPException(409, f"생방송 {n}개를 녹화 중입니다")
+        STATE["restart_after"] = True
+        log(f"생방송 녹화 {n}개가 모두 끝나면 업데이트(재시작)합니다")
+        return {"after": True}
     log("업데이트를 위해 재시작합니다")
     threading.Timer(1, os._exit, (0,)).start()
 
@@ -2722,7 +2850,7 @@ NUMERIC = {"max_height": (0, 4320), "crf": (0, 63), "ratio": (10, 200), "concurr
            "daily_limit": (1, 10000), "bot_cooldown_min": (1, 1440), "sleep_min": (0, 3600), "sleep_max": (0, 3600),
            "sleep_requests": (0, 60), "min_free_gb": (0, 100000), "login_refresh_days": (0, 365), "check_interval_min": (MIN_INTERVAL, 10080), "sub_fetch_limit": (1, 200)}
 CHOICES = {"quality": {*QUALITY, "original", "custom"}, "codec": {"none", "h264", "h265", "av1"},
-           "subtitles": {"all", "manual", "off"}, "hwaccel": {"auto", "cpu", "nvenc", "vaapi"}, "video_folder": {"0", "1"}, "stream_compress": {"0", "1"}, "auto_merge": {"0", "1"}, "sponsorblock": {"0", "1"}, "live_compress": {"off", "gpu", "gpu_cpu"},
+           "subtitles": {"all", "manual", "off"}, "hwaccel": {"auto", "cpu", "nvenc", "vaapi"}, "video_folder": {"0", "1"}, "stream_compress": {"0", "1"}, "auto_merge": {"0", "1"}, "gap_fill": {"0", "1"}, "gap_keep_rec": {"0", "1"}, "sponsorblock": {"0", "1"}, "live_compress": {"off", "gpu", "gpu_cpu"},
            "preset": {"ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"}}
 
 
