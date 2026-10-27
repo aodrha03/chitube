@@ -180,7 +180,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.6.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.6.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -806,6 +806,7 @@ def compress(src, duration, s, jid, force=False, tags=None, live=False):
     return dst, hw
 
 
+REC_END = {}  # 생방송 주소 → 마지막으로 녹화가 끝난 시각 (이어서 녹화할 참인지 판단용)
 GPU_LIVE = {}  # 그래픽카드로 녹화하면서 압축 중인 생방송 job → 장치(nvenc · vaapi)
 
 
@@ -827,6 +828,7 @@ def run_job(job, s, dl=None):
     jid = job["id"]
     ACTIVE.add(jid)
     CANCEL.discard(jid)  # 예전 취소 요청이 남아 있으면 다시 받기가 바로 취소됐음
+    KILLED.discard(jid)  # 지난번 감시자 표시도
     st = "recording" if job["live"] else "downloading"
     LIVE[jid] = {"status": st, "progress": 0}
     finished = []
@@ -936,6 +938,8 @@ def run_job(job, s, dl=None):
             finally:
                 stop.append(True)
                 GPU_LIVE.pop(jid, None)
+                if is_live:
+                    REC_END[job["url"]] = time.time()
 
     orig = info = meta = None
     try:
@@ -1029,12 +1033,13 @@ def run_job(job, s, dl=None):
         elif is_live:  # 원본 화질 유지하면서 재생 가능한 mp4 로 변환
             path, hw = compress(orig, dur, s | {"codec": "copy"}, jid, force=True, tags=tags)
         meta["size"] = os.path.getsize(path)
-        if bad := check_file(path, None if is_live else info.get("duration")):
-            if is_live:  # 끝난 방송은 다시 녹화할 수 없음 → 녹화본은 그대로 두고 알림만
-                log(f"녹화 파일 검사: {bad} — {info.get('title')}")
-            else:  # 깨진 파일은 지우고(남겨 두면 다음에 '이미 받은 파일'로 건너뜀) 일시적 오류처럼 조금 뒤 다시
-                os.remove(path)
-                raise RuntimeError(f"받은 파일 검사 실패: {bad}")
+        bad, broken = check_file(path, None if is_live else info.get("duration"))
+        if bad and broken and not is_live:  # 열리지 않는 파일은 지우고(남겨 두면 다음에 '이미 받은 파일'로 건너뜀) 조금 뒤 다시
+            os.remove(path)
+            raise RuntimeError(f"받은 파일 검사 실패: {bad}")
+        if bad:  # 끝난 방송은 다시 녹화할 수 없고, 길이 차이는 깨짐이 아님 → 파일은 그대로 두고 알림만
+            log(f"받은 파일 검사: {bad} — {info.get('title')}")
+            meta["check_warn"] = bad
         base = os.path.splitext(path)[0]
         for f in glob.glob(glob.escape(base) + ".*-orig.srt"):  # "영상.en-orig.srt" 는 Plex/Jellyfin 이 언어를 못 읽음
             if not os.path.exists(f.replace("-orig.srt", ".srt")):
@@ -1368,9 +1373,10 @@ def compress_turn(jid, p, dl=None):
     if dl:
         dl.set()
     LIVE[jid] = {"status": "compressing", "progress": 0, "waiting": True}
-    told = False
+    told, t0 = False, time.time()
     while True:
-        if busy := overloaded():  # 부하가 높으면 새 압축은 잠시 대기 (이미 압축 중인 건 그대로)
+        # 부하 보호는 최대 30분만 (CPU 로 녹화하면서 압축하는 생방송이 계속 돌면 늘 95% 이상이라 영원히 미뤄졌음)
+        if busy := overloaded() and time.time() - t0 < 1800:  # 부하가 높으면 새 압축은 잠시 대기 (이미 압축 중인 건 그대로)
             if not told:
                 log(f"CPU · 그래픽카드 부하가 높아 압축을 잠시 미룸 (녹화 우선): {(q('SELECT title FROM jobs WHERE id=?', (jid,)) or [{}])[0].get('title')}")
                 told = True
@@ -1456,13 +1462,18 @@ def continue_live(job):
 
 
 def check_file(path, want=None):
-    """받은 직후 파일 검사 → 문제면 이유, 정상이면 None. 열리는지(길이를 읽을 수 있는지)와, 원래 길이를 알면 거의 같은지"""
-    got = probe_duration(path)
+    """받은 직후 파일 검사 → (문제 이유 또는 None, 깨졌는지). 깨짐 = 길이를 아예 못 읽음 (열리지 않음).
+    길이 차이는 깨짐이 아님 — 유튜브가 알려 주는 길이가 실제와 다른 영상(라이브 다시보기 등)이 있어,
+    예전엔 멀쩡한 파일을 지우고 다시 받기를 반복하다 영상을 잃을 수 있었음. 느린 NAS 에서 시간 초과면 검사를 건너뜀"""
+    try:
+        got = probe_duration(path)
+    except subprocess.SubprocessError:
+        return None, False
     if got <= 0:
-        return "재생 불가 (손상)"
+        return "재생 불가 (손상)", True
     if want and abs(got - want) > max(3, want * 0.03):
-        return f"길이 불일치 ({got:.0f}초 / 원본 {want:.0f}초)"
-    return None
+        return f"길이가 원본과 다름 ({got:.0f}초 / 원본 {want:.0f}초)", False
+    return None, False
 
 
 def same_codec(path, codec):
@@ -1593,11 +1604,11 @@ def quality_check(jid):
 def job_thread(job, s, dl):
     try:
         run_job(job, s, dl)
-        if job["live"]:  # 끝난 녹화 품질 검사 (백그라운드)
-            threading.Thread(target=quality_check, args=(job["id"],), daemon=True).start()
         if job["id"] in MERGE_AFTER:
             MERGE_AFTER.discard(job["id"])
             auto_merge(job)
+        if job["live"]:  # 끝난 녹화 품질 검사 (백그라운드). 합쳐져 없어진 조각이면 그냥 끝남 — 합친 파일은 합치기가 따로 검사
+            threading.Thread(target=quality_check, args=(job["id"],), daemon=True).start()
     except Exception as e:  # 예상 못 한 오류로 이 영상이 '다운로드 중'으로 멈춰 있지 않게
         q("UPDATE jobs SET status='error', error=?, finished=? WHERE id=? AND status='downloading'",
           (f"내부 오류: {e}"[:500], time.time(), job["id"]))
@@ -1621,7 +1632,8 @@ def worker_step(slot, live):
             yt, cz = min(int(s["concurrency"]), MAX_PARALLEL), min(int(s["chzzk_concurrency"]), MAX_PARALLEL)
         yt = yt if yt_ok else 0
         if not live:  # 압축 대기가 압축 개수의 2배를 넘으면 그 플랫폼은 새로 받지 않음 (생방송 녹화는 쉬지 않음)
-            waiting = [p for j, p in COMPRESSING.copy().items() if j not in COMP_RUN]
+            # 나중에 압축(RECOMP)은 새로 받은 원본이 아니라 빼고 셈 — 예전엔 100개를 나중에 압축으로 걸면 끝날 때까지 새 다운로드가 멈췄음
+            waiting = [p for j, p in COMPRESSING.copy().items() if j not in COMP_RUN and j not in RECOMP]
             yt = 0 if waiting.count("youtube") >= 2 * int(s["compress_concurrency"]) else yt
             cz = 0 if waiting.count("chzzk") >= 2 * int(s["chzzk_compress_concurrency"]) else cz
         job = claim(live, yt, cz)
@@ -1834,9 +1846,11 @@ def recording(cid):
     """이 채널을 녹화 중(대기 포함)이거나 방금(1분 안) 녹화가 끝나 이어서 녹화할 참이면 True → 새 녹화를 또 만들지 않음.
     예전엔 방송 중 제목을 바꾸는 등으로 방송 ID 가 바뀌면 같은 방송을 새 녹화(새 폴더)로 또 받았음"""
     # 압축 단계(녹화는 끝남)는 빼야 함 — 예전엔 끝난 방송을 압축하는 동안(몇십 분) 새로 시작한 방송을 녹화하지 않았음
-    return bool(q(f"""SELECT 1 FROM jobs WHERE url=? AND live=1 AND id NOT IN ({','.join(map(str, COMPRESSING.copy())) or 0})
-                     AND (status IN ('queued','downloading') OR finished > ?) LIMIT 1""",
-                  (f"https://chzzk.naver.com/live/{cid}", time.time() - 60)))
+    url = f"https://chzzk.naver.com/live/{cid}"
+    # 방금 녹화가 끝남 = 녹화 자체가 끝난 시각 (예전엔 작업 완료 시각이라, 녹화 후 압축이 끝난 직후 1분 동안 새 방송을 늦게 잡았음)
+    return REC_END.get(url, 0) > time.time() - 60 or bool(q(
+        f"""SELECT 1 FROM jobs WHERE url=? AND live=1 AND id NOT IN ({','.join(map(str, COMPRESSING.copy())) or 0})
+            AND status IN ('queued','downloading') LIMIT 1""", (url,)))
 
 
 KILLED = set()  # 감시자가 멈춰서 정리한 작업 → 오류를 일시적 오류로 (조금 뒤 다시 · 녹화는 이어서)
@@ -1849,6 +1863,7 @@ def watchdog_step():
     → 생방송은 녹화분 보존 + 이어서 녹화, 다운로드는 조금 뒤 다시 받기 (작업별 감시가 어떤 이유로든 죽어도 살아남)
     스레드가 사라진 채 '받는 중'으로 남은 작업은 대기열로 되돌림"""
     LOADS.append(load(WD_CPU))  # 부하 보호용 (1분마다)
+    prune_logs()  # 오래 켜 두면 로그가 LOG_DAYS 넘게 쌓였음 (예전엔 시작할 때만 정리)
     if STATE.get("restart_after") and not live_recording():
         log("녹화가 모두 끝나 업데이트(재시작)합니다")
         threading.Timer(1, os._exit, (0,)).start()
@@ -1874,7 +1889,8 @@ def watchdog_step():
         kind = "compress" if st.get("status") == "compressing" else "live" if r["live"] else "download"
         if idle >= WATCHDOG_SEC[kind]:
             killed = [pid for exe in (b"ffmpeg", b"aria2c") for pid, _ in procs(exe, r["video_id"])]
-            KILLED.add(jid)
+            if killed:
+                KILLED.add(jid)
             for pid in killed:
                 os.kill(pid, 9)
             log(f"{int(idle // 60)}분째 진행 없음 → 멈춰서 정리함 ({'녹화분 보존 · 이어서 녹화' if r['live'] else '조금 뒤 다시'}): {r['title']}"
@@ -2253,8 +2269,10 @@ def do_merge(rows, probes, reencode):
             s = job_settings(rows[0])
             if s["codec"] in ("none", "copy"):  # '원본 그대로' 설정이면 H.265 표준으로
                 s = s | {"codec": "h265", "crf": QUALITY["standard"][1]}
+            compress_turn(rows[0]["id"], platform_of(rows[0]["url"]))  # 동시 압축 개수 · 부하 보호 (예전엔 무시하고 바로 압축)
             hw = encoder_for(s)
-            _, enc = encode_args(s, 0, "cpu" if hw == "vaapi" else hw)  # ponytail: 퀵싱크는 필터 연결이 달라 CPU 로
+            hw = "cpu" if hw == "vaapi" or (hw != "cpu" and gpu_live(hw)) else hw  # ponytail: 퀵싱크는 필터 연결이 달라 CPU · 녹화 중이면 그래픽카드 양보
+            _, enc = encode_args(s, 0, hw)
             w, h = next(((x[2], x[3]) for x in probes[0][0] if x[0] == "video"), (1920, 1080))
             audio = all(any(x[0] == "audio" for x in p[0]) for p in probes)
             fc = "".join(f"[{i}:v:0]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p[v{i}];"
@@ -2282,6 +2300,9 @@ def do_merge(rows, probes, reencode):
         if os.path.exists(lst):
             os.remove(lst)
         MERGING.discard(rows[0]["id"])
+        if reencode:
+            compress_done(rows[0]["id"])
+            LIVE.pop(rows[0]["id"], None)
     for r in rows[1:]:  # 나머지 조각 영상과 딸린 파일(썸네일·nfo) 삭제, 비면 영상별 폴더도
         for f in glob.glob(glob.escape(os.path.splitext(r["filepath"])[0]) + "*"):
             os.remove(f)
@@ -2291,7 +2312,9 @@ def do_merge(rows, probes, reencode):
             pass
         q("DELETE FROM jobs WHERE id=?", (r["id"],))
     meta = json.loads(rows[0]["meta"] or "{}") | {"size": os.path.getsize(first), "duration": got, "merged": len(rows)}
+    meta.pop("qc", None)  # 1번째 조각만 본 품질 검사 결과 → 합친 파일 전체로 다시
     q("UPDATE jobs SET meta=?, cut=NULL WHERE id=?", (json.dumps(meta, ensure_ascii=False), rows[0]["id"]))
+    threading.Thread(target=quality_check, args=(rows[0]["id"],), daemon=True).start()
     log(f"녹화 조각 {len(rows)}개 합침{' (다시 압축)' if reencode else ''}: {rows[0]['title']}")
     return {"merged": len(rows)}
 

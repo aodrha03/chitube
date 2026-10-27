@@ -791,7 +791,9 @@ assert main.q("PRAGMA journal_mode")[0]["journal_mode"] == "wal"
 main.log("로그 파일 시험 줄")
 assert "로그 파일 시험 줄" in main.logs_file().body.decode()
 # 7. 받은 직후 파일 검사
-assert main.check_file(f"{td}/없는파일.mp4") and main.check_file(f"{cd_}/v [cancel00001].mkv", 60) and not main.check_file(f"{cd_}/v [cancel00001].mkv", 2)
+assert main.check_file(f"{td}/없는파일.mp4")[1]  # 열리지 않음 = 깨짐
+assert main.check_file(f"{cd_}/v [cancel00001].mkv", 60) == ("길이가 원본과 다름 (2초 / 원본 60초)", False)  # 길이 차이는 깨짐 아님
+assert main.check_file(f"{cd_}/v [cancel00001].mkv", 2) == (None, False)
 # 5. 일시적 오류 → 바로 '오류' 말고 조금 뒤 다시 (그 전엔 안 가져감)
 class NetDL(FakeDL):
     def process_ie_result(self, raw, download=True):
@@ -877,4 +879,26 @@ qc = json.loads(main.q("SELECT meta FROM jobs WHERE id=?", (qj,))[0]["meta"])["q
 assert len(qc["freeze"]) == 1 and 7 <= qc["freeze"][0][0] <= 10 and len(qc["silence"]) == 1 and qc["silence"][0][1] >= 13
 # 그래픽카드가 없으면 측정 안 함 (기본값 그대로)
 main.gpu_bench(); assert "gpu_bench" not in main.STATE
+# '방금 녹화가 끝남'은 녹화 끝난 시각으로 (작업 완료 시각 X → 압축이 끝난 직후 새 방송을 늦게 잡지 않음)
+re_c = "8" * 32
+main.q("INSERT INTO jobs(video_id,url,title,opts,live,status,finished) VALUES('chzzk-live-9901',?,'끝','{}',1,'done',?)",
+       (f"https://chzzk.naver.com/live/{re_c}", main.time.time()))
+assert not main.recording(re_c)  # 방금 압축이 끝났어도 녹화는 오래전에 끝남 → 새 방송 바로 녹화
+main.REC_END[f"https://chzzk.naver.com/live/{re_c}"] = main.time.time()
+assert main.recording(re_c)  # 녹화가 방금 끝남 → 이어서 녹화할 참이라 새 녹화를 만들지 않음
+main.REC_END.clear()
+# 유튜브가 알려 준 길이와 달라도 파일은 지우지 않음 (예전엔 지우고 다시 받기를 반복하다 영상을 잃을 수 있었음)
+ld = tempfile.mkdtemp()
+main.subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10", "-t", "2", f"{ld}/l [lenwarn0001].mkv"], check=True)
+class LenDL(FakeDL):
+    def prepare_filename(self, raw): return f"{ld}/l [lenwarn0001].mkv"
+    def process_ie_result(self, raw, download=True):
+        return {"title": "길이 다름", "duration": 60, "requested_downloads": [{"filepath": f"{ld}/l [lenwarn0001].mkv"}]}
+real_dl, main.yt_dlp.YoutubeDL = main.yt_dlp.YoutubeDL, LenDL
+main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('lenwarn0001','https://www.youtube.com/watch?v=lenwarn0001','l','{}','downloading')")
+lj2 = main.q("SELECT * FROM jobs WHERE video_id='lenwarn0001'")[0]
+main.run_job(lj2, main.job_settings(lj2) | {"codec": "none"})
+main.yt_dlp.YoutubeDL = real_dl
+r = main.q("SELECT status, filepath, meta FROM jobs WHERE id=?", (lj2["id"],))[0]
+assert r["status"] == "done" and os.path.isfile(r["filepath"]) and "길이가 원본과 다름" in json.loads(r["meta"])["check_warn"]
 print("queue page ok")

@@ -4,6 +4,17 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.6.2 — 2026-10-27
+### Fixed
+- **New downloads stopped while many "compress later" jobs were queued** (1.2.3): the "too many waiting compressions" guard counted compress-later jobs, so queuing 100 of them stopped new downloads for hours → only freshly downloaded originals count.
+- **Load protection could postpone compression forever** (1.5.0): with a live stream compressing on the CPU the CPU stays above 95%, so compression kept waiting and downloads could stop too → postponed for at most 30 minutes.
+- **New streams of a channel were picked up late for a minute after its recording finished compressing** (1.2.0): "just finished recording" now uses when the recording ended, not when the job (incl. compression) finished.
+- The watchdog remembered a job as "cleaned up" even when there was nothing to stop, misclassifying later failures as temporary (1.4.0).
+- Log files piled up beyond 7 days on long-running servers (1.4.0) → pruned every minute.
+- **The post-download check could delete good files** (1.4.0): a timeout on a slow NAS counted as "unplayable", and videos whose YouTube-reported length differs slightly (e.g. live replays) were deleted and re-downloaded repeatedly, possibly losing the video → files are deleted only when they truly can't be opened; a length difference is just noted in the video info.
+- **Merged recordings kept the quality check of the first part only** (1.6.0), sometimes running during the merge → the merged file is checked again.
+- **Re-encoding merges ignored the compression slots and GPU yielding** → they now wait for a slot and use the CPU while a live stream is compressed on the GPU.
+
 ## v1.6.1 — 2026-10-27
 ### Changed
 - **English documentation**: English README, user manual, per-platform install guides and changelog (`*.en.md`); release zips include `INSTALL.en.md`. English messages in the Windows `시작.bat` / `중지.bat`, `.env.example`, `docker-compose.yml` and the permission-error message.
