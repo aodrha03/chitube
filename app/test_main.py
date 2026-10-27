@@ -649,4 +649,20 @@ try:
     main.recompress(main.Recompress(ids=[rj], quality="original")); assert False
 except main.HTTPException:
     pass
+# 녹화가 끝나 압축 단계인 녹화는 '녹화 중'으로 안 셈 → 그동안 시작한 새 방송도 녹화
+main.q("UPDATE jobs SET status='downloading', finished=NULL WHERE video_id='chzzk-live-955501'")
+cid_ = main.q("SELECT id FROM jobs WHERE video_id='chzzk-live-955501'")[0]["id"]
+assert main.recording(rc)
+main.COMPRESSING[cid_] = "chzzk"
+assert not main.recording(rc)
+main.compress_done(cid_)
+main.q("UPDATE jobs SET status='done', finished=0 WHERE id=?", (cid_,))
+# 끝난 녹화를 압축했는데 안 작아지면 MPEG-TS 그대로 두지 않고 mp4 로
+main.subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10", "-t", "2", "-c:v", "libx264", "-crf", "40",
+                     "-f", "mpegts", f"{td}/rec2.mp4"], check=True)
+main.q("INSERT INTO jobs(video_id,url,title,opts,live) VALUES('chzzk-live-9078','https://chzzk.naver.com/live/x','끝난 방송','{}',1)")
+kj2 = main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-9078'")[0]
+out = main.finish_kept(kj2, f"{td}/rec2.mp4", main.settings() | {"codec": "h265", "crf": "0", "ratio": "200", "preset": "ultrafast"})
+assert b"ftyp" in open(out, "rb").read(16)
+main.compress_done(kj2["id"]); main.LIVE.pop(kj2["id"], None)
 print("queue page ok")

@@ -170,7 +170,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.2.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.2.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -704,16 +704,16 @@ def run_ffmpeg(cmd, duration, jid):
     return None if p.wait() == 0 else err
 
 
-def compress(src, duration, s, jid, force=False, tags=None):
-    """→ (결과 경로, 사용한 인코딩 장치)"""
+def compress(src, duration, s, jid, force=False, tags=None, live=False):
+    """→ (결과 경로, 사용한 인코딩 장치). live = 생방송 녹화본 (중간에 해상도가 바뀔 수 있어 첫 화면 크기로 고정)"""
     base = os.path.splitext(src)[0]
     tmp, dst = base + ".compressing.mp4", base + ".mp4"
     LIVE[jid] = {"status": "compressing", "progress": 0}
     # 전체 평균 비트레이트에서 오디오 몫을 빼서 원본 영상 비트레이트 추정
     vbit = max(os.path.getsize(src) * 8 / duration - yt_dlp.utils.parse_bytes(s["audio_bitrate"]), 0) if duration else 0
     hw = "cpu" if s["codec"] == "copy" else encoder_for(s)
-    # 첫 화면 크기로 고정 (녹화 중간에 해상도가 바뀐 생방송 녹화본도 압축이 멈추지 않게)
-    size = None if s["codec"] == "copy" else next(((w, h) for t, _, w, h in probe_streams(src)[0] if t == "video"), None)
+    # 첫 화면 크기로 고정 (녹화 중간에 해상도가 바뀐 생방송 녹화본도 압축이 멈추지 않게). 일반 영상은 그대로 (10비트 등 유지)
+    size = None if s["codec"] == "copy" or not live else next(((w, h) for t, _, w, h in probe_streams(src)[0] if t == "video"), None)
     err = run_ffmpeg(ffmpeg_cmd(src, tmp, s, vbit, tags, hw, size), duration, jid)
     if err is not None and hw != "cpu" and jid not in CANCEL:  # 드라이버 문제 등 → CPU 로 한 번 더
         log(f"{HW_NAME[hw]} 인코딩 실패 → CPU 로 다시 시도: {err.strip()[-120:]}")
@@ -795,7 +795,9 @@ def run_job(job, s, dl=None):
             raw["fname_channel"] = plain_name(raw.get("channel") or raw.get("uploader"))
             base_vid, part = part_of(job["video_id"])
             if is_live and cz and part > 1:  # 이어서 녹화한 파일은 1번째 파일과 같은 폴더 · 같은 이름 (방송 중 제목이 바뀌어도)
-                first = (q("SELECT filepath FROM jobs WHERE video_id=?", (base_vid,)) or [{}])[0].get("filepath")
+                first = (q("SELECT filepath FROM jobs WHERE video_id=?", (base_vid,)) or [{}])[0].get("filepath") or next(
+                    (f for f in glob.glob(os.path.join(glob.escape(safe_dir(s["folder"])), "**", f"*{glob.escape(f'[{base_vid}]')}*"), recursive=True)
+                     if os.path.isfile(f)), None)  # 1번째 조각이 아직 압축 중이면 경로가 비어 있음 → 녹화 파일로
                 if m := re.match(r"(\d{4})-(\d\d)-(\d\d) - (.+) \[", os.path.basename(first or "")):
                     raw["upload_date"], raw["fname_title"] = "".join(m.groups()[:3]), m.group(4)
             season_dir = os.path.dirname(y.prepare_filename(raw))  # 치지직은 스트리머 폴더
@@ -903,7 +905,7 @@ def run_job(job, s, dl=None):
             hw = streamed  # 이미 압축됨
         elif s["codec"] != "none" and (fresh or is_live):
             # 호환성 프리셋은 목적이 H.264 변환이므로 용량이 커져도 결과 유지
-            path, hw = compress(orig, dur, s, jid, force=s["quality"] == "compat", tags=tags)
+            path, hw = compress(orig, dur, s, jid, force=s["quality"] == "compat", tags=tags, live=is_live)
             if is_live and path == orig:  # 압축본이 오히려 크면(이미 효율 좋은 방송) 화질 그대로 mp4 로만 정리 → 원본보다 커지지 않음
                 log(f"압축해도 작아지지 않아 원본 화질 유지: {info.get('title')}")
                 path, hw = compress(orig, dur, s | {"codec": "copy"}, jid, force=True, tags=tags)
@@ -1207,7 +1209,8 @@ COMP_LOCK = threading.Lock()
 def compress_turn(jid, p, dl=None):
     """다운로드 칸을 비우고(dl 신호 → 작업 스레드가 다음 영상을 받기 시작) 이 플랫폼의 압축 칸이 날 때까지 기다림.
     예전엔 압축이 끝나야 다음 다운로드가 시작됐음 (다운로드 개수 = 압축 개수)"""
-    COMPRESSING[jid] = p
+    with COMP_LOCK:
+        COMPRESSING[jid] = p
     if dl:
         dl.set()
     LIVE[jid] = {"status": "compressing", "progress": 0, "waiting": True}
@@ -1223,8 +1226,9 @@ def compress_turn(jid, p, dl=None):
 
 
 def compress_done(jid):
-    COMP_RUN.discard(jid)
-    COMPRESSING.pop(jid, None)
+    with COMP_LOCK:  # claim · compress_turn 이 도는 중에 바꾸면 'changed size during iteration' 오류
+        COMP_RUN.discard(jid)
+        COMPRESSING.pop(jid, None)
 
 
 STOPPED = set()  # 사용자가 "녹화 중지"한 job → 이어서 녹화 안 함
@@ -1291,8 +1295,8 @@ def finish_kept(job, path, s, dl=None):
         tags = {"title": job["title"]}
         if want and vc != want:
             compress_turn(job["id"], platform_of(job["url"]), dl)
-            out, _ = compress(path, dur, s, job["id"], tags=tags)
-        else:
+            out, _ = compress(path, dur, s, job["id"], tags=tags, live=True)
+        if not (want and vc != want) or out == path:  # 압축 안 함 · 압축해도 안 작아짐 → 화질 그대로 mp4 로만
             out, _ = compress(path, dur, s | {"codec": "copy", "src_codec": "h265" if vc == "hevc" else vc}, job["id"], force=True, tags=tags)
         meta = json.loads((q("SELECT meta FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("meta") or "{}")
         q("UPDATE jobs SET meta=? WHERE id=?", (json.dumps(meta | {"size": os.path.getsize(out), "duration": dur}, ensure_ascii=False), job["id"]))
@@ -1323,7 +1327,7 @@ def claim(live, yt, cz):
     개수 확인과 가져오기가 한 문장이라 여러 스레드가 동시에 불러도 한도를 넘지 않음"""
     cz_sql = "url LIKE '%chzzk.naver.com%'"
     # 압축 단계(COMPRESSING)는 다운로드 개수에서 뺌 → 압축 중에도 다음 영상을 받음
-    running = f"(SELECT COUNT(*) FROM jobs WHERE status='downloading' AND COALESCE(live,0)=? AND id NOT IN ({','.join(map(str, COMPRESSING)) or 0}) AND {{}})"
+    running = f"(SELECT COUNT(*) FROM jobs WHERE status='downloading' AND COALESCE(live,0)=? AND id NOT IN ({','.join(map(str, COMPRESSING.copy())) or 0}) AND {{}})"
     r = q(f"""UPDATE jobs SET status='downloading', error=NULL, err_seen=0, started={time.time()}, cut=NULL WHERE id=(
              SELECT id FROM jobs WHERE status='queued' AND COALESCE(live,0)=?
                AND (({cz_sql} AND {running.format(cz_sql)} < ?) OR (NOT {cz_sql} AND {running.format('NOT ' + cz_sql)} < ?))
@@ -1554,7 +1558,9 @@ def scheduler():
 def recording(cid):
     """이 채널을 녹화 중(대기 포함)이거나 방금(1분 안) 녹화가 끝나 이어서 녹화할 참이면 True → 새 녹화를 또 만들지 않음.
     예전엔 방송 중 제목을 바꾸는 등으로 방송 ID 가 바뀌면 같은 방송을 새 녹화(새 폴더)로 또 받았음"""
-    return bool(q("""SELECT 1 FROM jobs WHERE url=? AND live=1 AND (status IN ('queued','downloading') OR finished > ?) LIMIT 1""",
+    # 압축 단계(녹화는 끝남)는 빼야 함 — 예전엔 끝난 방송을 압축하는 동안(몇십 분) 새로 시작한 방송을 녹화하지 않았음
+    return bool(q(f"""SELECT 1 FROM jobs WHERE url=? AND live=1 AND id NOT IN ({','.join(map(str, COMPRESSING.copy())) or 0})
+                     AND (status IN ('queued','downloading') OR finished > ?) LIMIT 1""",
                   (f"https://chzzk.naver.com/live/{cid}", time.time() - 60)))
 
 
@@ -1863,7 +1869,7 @@ def recompress_one(job, quality):
         s = resolve(job_settings(job), {"quality": quality})
         compress_turn(jid, platform_of(job["url"]))
         size0 = os.path.getsize(src)
-        out, hw = compress(src, probe_duration(src), s, jid)
+        out, hw = compress(src, probe_duration(src), s, jid, live=bool(job["live"]))
         if out == src:
             log(f"압축해도 작아지지 않아 그대로 둠: {job['title']}")
             return
