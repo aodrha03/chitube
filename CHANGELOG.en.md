@@ -4,6 +4,11 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.9.1 — 2026-10-28
+### Fixed
+- **Big videos were cut as "stalled" after downloading and re-downloaded from scratch over and over** (real case: the same video 3–4 times, every 20 min): the mp4 finalizing step (moving the moov atom) of 30 GB+ files shows no progress, so the watchdog took it as stuck → an ffmpeg that is using CPU now counts as progress.
+- **CPU compression of long streams was force-stopped after 30 min and saved as "compression failed → original"** (10 real cases): a 10 h+ stream compressed on the CPU doesn't move 0.1 % in 30 min → same fix; a truly stuck ffmpeg is still cleaned up.
+
 ## v1.9.0 — 2026-10-28
 ### Added
 - **Defaults tuned to the server**: at startup ChiTube looks at CPU cores, memory and the graphics card and adjusts the defaults — with a graphics card, live recordings are compressed on the GPU while recording; CPU-only servers get a concurrent-compression count based on core count, weak CPUs a slightly faster preset, small NAS boxes fewer concurrent Chzzk downloads/recordings. Values you saved in Settings always win (the log shows "서버 사양 → 기본 설정").

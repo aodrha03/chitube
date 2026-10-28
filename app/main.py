@@ -181,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.9.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.9.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -1954,6 +1954,21 @@ WD = {}  # 감시자: job → (마지막으로 본 진행 상태, 그 상태가 
 ACTIVE = set()  # 지금 실제로 돌고 있는 run_job (스레드가 사라진 '받는 중' 작업 찾기용)
 
 
+WD_TICKS = {}  # 감시자: 작업별 ffmpeg 가 쓴 CPU 시간 (직전 1분)
+
+
+def cpu_ticks(vid):
+    """'[영상ID]' ffmpeg 들이 지금까지 쓴 CPU 시간 합 (클럭 틱, 보통 1초 = 100)"""
+    n = 0
+    for pid, _ in procs(b"ffmpeg", vid):
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                n += sum(map(int, f.read().rsplit(")", 1)[1].split()[11:13]))  # utime · stime (이름에 공백 · 괄호가 있어도 안전)
+        except (OSError, ValueError):
+            pass
+    return n
+
+
 def watchdog_step():
     """1분마다 '받는 중' 작업 전부 확인: 진행(받은 양 · 압축 %)이 정해진 시간 동안 전혀 안 바뀌면 그 작업의 ffmpeg · aria2c 를 끝냄
     → 생방송은 녹화분 보존 + 이어서 녹화, 다운로드는 조금 뒤 다시 받기 (작업별 감시가 어떤 이유로든 죽어도 살아남)
@@ -1971,6 +1986,14 @@ def watchdog_step():
             WD.pop(jid, None)
             continue
         sig = (st.get("status"), st.get("bytes"), round(st.get("progress") or 0, 1), jid in ACTIVE)
+        kind = "compress" if st.get("status") == "compressing" else "live" if r["live"] else "download"
+        if kind != "live":  # 다 받은 뒤 후처리(큰 파일 mp4 정리 · 자막 넣기 등)는 진행 표시가 없음 → ffmpeg 가 CPU 를 쓰고 있으면 진행 중
+            # (예전엔 30GB 넘는 영상의 mp4 정리가 20분을 넘겨 '멈춤'으로 강제 종료 → 처음부터 다시 받기를 반복했음)
+            t, t0 = cpu_ticks(r["video_id"]), WD_TICKS.get(jid)
+            WD_TICKS[jid] = t
+            if t0 is not None and t - t0 > 100:  # 1분에 CPU 1초 넘게 = 일하는 중
+                WD[jid] = (sig, now)
+                continue
         if WD.get(jid, (None,))[0] != sig:
             WD[jid] = (sig, now)
             continue
@@ -1982,7 +2005,6 @@ def watchdog_step():
             log(f"받기 스레드가 사라진 작업 → 대기열로 되돌림: {r['title']}")
             WD.pop(jid, None)
             continue
-        kind = "compress" if st.get("status") == "compressing" else "live" if r["live"] else "download"
         if idle >= WATCHDOG_SEC[kind]:
             killed = [pid for exe in (b"ffmpeg", b"aria2c") for pid, _ in procs(exe, r["video_id"])]
             if killed:
@@ -1992,8 +2014,9 @@ def watchdog_step():
             log(f"{int(idle // 60)}분째 진행 없음 → 멈춰서 정리함 ({'녹화분 보존 · 이어서 녹화' if r['live'] else '조금 뒤 다시'}): {r['title']}"
                 + ("" if killed else " (정리할 프로그램 없음)"))
             WD[jid] = (sig, now)  # 다음 판단은 다시 처음부터
-    for jid in set(WD) - {r["id"] for r in rows}:
+    for jid in (set(WD) | set(WD_TICKS)) - {r["id"] for r in rows}:
         WD.pop(jid, None)
+        WD_TICKS.pop(jid, None)
     time.sleep(60)
 
 

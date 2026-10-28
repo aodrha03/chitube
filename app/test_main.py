@@ -826,6 +826,21 @@ main.time.sleep = real_sleep
 assert fp.wait(10) != 0 and wj in main.KILLED  # 멈춘 녹화의 ffmpeg 를 끝냄 → 녹화분 보존 · 이어서 녹화
 main.KILLED.discard(wj); main.ACTIVE.discard(wj); main.LIVE.pop(wj, None)
 main.q("UPDATE jobs SET status='done' WHERE id=?", (wj,))
+# 다 받은 뒤 후처리(진행 표시 없음)라도 ffmpeg 가 CPU 를 쓰는 중이면 안 끊음, CPU 를 안 쓰면 끊음
+main.time.sleep = lambda x: None
+for vid, busy in (("wdbusy0001", True), ("wdidle0001", False)):
+    fp = main.subprocess.Popen(["ffmpeg", "-v", "error", *([] if busy else ["-re"]), "-f", "lavfi", "-i", "testsrc2=s=1280x720", "-c:v", "libx264", "-f", "null", f"/dev/null/[{vid}]"]
+                               if busy else ["ffmpeg", "-v", "error", "-re", "-f", "lavfi", "-i", "nullsrc=s=16x16:r=1", "-f", "null", f"/x/[{vid}]"])
+    main.q(f"INSERT INTO jobs(video_id,url,title,opts,status) VALUES('{vid}','https://www.youtube.com/watch?v={vid}','b','{{}}','downloading')")
+    bj = main.q("SELECT id FROM jobs WHERE video_id=?", (vid,))[0]["id"]
+    main.ACTIVE.add(bj); main.LIVE[bj] = {"status": "downloading", "bytes": 10, "progress": 100}
+    main.watchdog_step(); real_sleep(3)
+    main.WD[bj] = (main.WD[bj][0], main.WD[bj][1] - 1300)
+    main.watchdog_step()
+    assert (bj in main.KILLED) != busy and (fp.poll() is None if busy else fp.wait(10) == -9), vid
+    fp.kill(); main.KILLED.discard(bj); main.ACTIVE.discard(bj); main.LIVE.pop(bj, None)
+    main.q("UPDATE jobs SET status='done' WHERE id=?", (bj,))
+main.time.sleep = real_sleep
 assert main.TRANSIENT_RE.search("진행이 멈춰서 정리함: ERROR: aria2c exited with code -9") and not main.TRANSIENT_RE.search("Video unavailable")
 # 1. 녹화가 끊겼던 방송은 다시보기로 빈 곳 메움 (다시보기 구독 · 생방송만 구독 둘 다)
 gz = "7" * 32
