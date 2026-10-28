@@ -135,7 +135,8 @@ MAX_RETRIES = 6     # 자동 재시도 한도: 일시적 오류 바로 다시(3�
 ADULT_RE = re.compile(r"HTTP Error 401|Unauthorized")  # 치지직 성인 영상을 로그인(성인 인증) 없이 받을 때
 ADULT_MSG = "성인 인증 필요 — 치지직 로그인(성인 인증된 계정) 후 '다시 받기' (자동 재시도 안 함)"
 
-BOT_RE = re.compile(r"not a bot|HTTP Error 429|Too Many Requests|try again later|rate.?limit", re.I)
+# 유튜브 차단 신호. 목록을 한국어(lang=ko)로 받아 차단 문구도 한국어로 올 수 있음 — 예전엔 영어 문구만 알아봐서 한국어 차단 문구엔 쉬지 않고 계속 요청했음
+BOT_RE = re.compile(r"not a bot|Sign in to confirm you|HTTP Error 429|Too Many Requests|try again later|rate.?limit|봇이 아님", re.I)
 UPCOMING_RE = re.compile(r"will begin|Premieres in|live event will", re.I)
 NOT_LIVE_RE = re.compile(r"not currently live", re.I)  # 치지직 API 가 막 시작한 방송을 잠깐 '종료'로 알려 줄 때 yt-dlp 오류
 WATCHDOG_SEC = {"live": 180, "download": 1200, "compress": 1800}  # 다운로드: 받은 뒤 합치기(긴 4K 영상 · 느린 NAS) 동안도 진행이 안 바뀜  # 전체 감시자: 이만큼 진행이 전혀 없으면 멈춘 것으로 보고 정리
@@ -180,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.7.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.7.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -783,7 +784,7 @@ def run_ffmpeg(cmd, duration, jid, enc=None):
 
 
 def compress(src, duration, s, jid, force=False, tags=None, live=False):
-    """→ (결과 경로, 사용한 인코딩 장치). live = 생방송 녹화본 (중간에 해상도가 바뀔 수 있어 첫 화면 크기로 고정)"""
+    """→ (결과 경로, 사용한 인코딩 장치 — 압축해도 안 작아져 원본을 그대로 뒀으면 None). live = 생방송 녹화본 (중간에 해상도가 바뀔 수 있어 첫 화면 크기로 고정)"""
     base = os.path.splitext(src)[0]
     tmp, dst = base + ".compressing.mp4", base + ".mp4"
     LIVE[jid] = {"status": "compressing", "progress": 0}
@@ -807,9 +808,10 @@ def compress(src, duration, s, jid, force=False, tags=None, live=False):
         if os.path.exists(tmp):
             os.remove(tmp)
         raise RuntimeError("ffmpeg 압축 실패 (원본 유지): " + err[-300:])
-    if not force and os.path.getsize(tmp) >= os.path.getsize(src):  # 압축이 오히려 커지면 원본 유지
+    if not force and os.path.getsize(tmp) >= os.path.getsize(src):  # 압축이 오히려 커지면 원본 유지 → 장치 None
+        # (예전엔 호출한 쪽이 결과 경로 == 원본 경로로 판단했는데, 원본이 .mp4 면 압축본도 같은 이름이라 압축했는데도 '그대로'로 봤음)
         os.remove(tmp)
-        return src, hw
+        return src, None
     os.replace(tmp, dst)
     if src != dst:
         os.remove(src)
@@ -1035,9 +1037,9 @@ def run_job(job, s, dl=None):
                     raise
                 log(f"압축 실패 → 원본 그대로 저장 (인코딩 가능): {info.get('title')} — {str(e)[-120:]}")
                 meta["compress_error"] = str(e)[-300:]
-                path, hw = orig, "cpu"
-            encoded = path != orig
-            if is_live and path == orig:  # 압축본이 오히려 크면(이미 효율 좋은 방송) 화질 그대로 mp4 로만 정리 → 원본보다 커지지 않음
+                path, hw = orig, None
+            encoded = hw is not None
+            if is_live and not encoded:  # 압축본이 오히려 크면(이미 효율 좋은 방송) · 압축 실패 → 화질 그대로 mp4 로만 정리
                 log(f"압축해도 작아지지 않아 원본 화질 유지: {info.get('title')}")
                 path, hw = compress(orig, dur, s | {"codec": "copy"}, jid, force=True, tags=tags)
         elif is_live:  # 원본 화질 유지하면서 재생 가능한 mp4 로 변환
@@ -1126,10 +1128,9 @@ def run_job(job, s, dl=None):
             # 보존했으면 '완료'로 (오류로 두면 점검이 다시 받기로 같은 방송을 처음부터 또 녹화함). 끊긴 표시는 cut 으로
             kept = keep_partial(job["video_id"], s) if job["live"] else None
             ended = kept and not live_now(job)
-            if ended:  # 방송이 끝나서 끊긴 것 = 정상 종료 (치지직은 방송이 끝나면 재생 목록이 바로 사라져 ffmpeg 가 오류로 끝남)
+            if kept:  # 방송이 끝나서 끊긴 것(정상 종료) · 방송 중에 끊긴 조각 둘 다 설정대로 정리 (압축 · mp4 · 썸네일)
+                # (예전엔 방송 중에 끊긴 조각은 MPEG-TS 원본 그대로 남아, 마지막 조각과 형식이 달라 자동 합치기도 안 됐음)
                 kept = finish_kept(job, kept, s, dl)
-            elif kept:
-                frame_thumb(kept)
             # 보존한 녹화의 오류 문구는 영상 정보 창에만 (확인한 오류로 → 카드·상태 화면에 빨간 오류로 안 뜸). 방송이 이어지면 새 파일로 이어서 녹화
             q("UPDATE jobs SET status=?, error=?, err_seen=?, filepath=COALESCE(?, filepath), finished=? WHERE id=?",
               ("done" if kept else "error", None if ended else msg[:500], int(bool(kept)), kept, time.time(), jid))
@@ -1504,8 +1505,8 @@ def finish_kept(job, path, s, dl=None):
         tags = {"title": job["title"]}
         if enc:
             compress_turn(job["id"], platform_of(job["url"]), dl)
-            out, _ = compress(path, dur, s, job["id"], tags=tags, live=True)
-        if not enc or out == path:  # 압축 안 함 · 압축해도 안 작아짐 → 화질 그대로 mp4 로만
+            out, hw = compress(path, dur, s, job["id"], tags=tags, live=True)
+        if not enc or hw is None:  # 압축 안 함 · 압축해도 안 작아짐 → 화질 그대로 mp4 로만
             out, _ = compress(path, dur, s | {"codec": "copy", "src_codec": "h265" if vc == "hevc" else vc}, job["id"], force=True, tags=tags)
         meta = json.loads((q("SELECT meta FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("meta") or "{}")
         q("UPDATE jobs SET meta=? WHERE id=?", (json.dumps(meta | {"size": os.path.getsize(out), "duration": dur}, ensure_ascii=False), job["id"]))
@@ -1514,6 +1515,21 @@ def finish_kept(job, path, s, dl=None):
     except Exception as e:
         log(f"끝난 녹화 정리 실패 (녹화 파일은 그대로): {job['title']} — {str(e)[-120:]}")
         return path
+
+
+def finish_resumed(jid):
+    """재시작으로 끊긴 녹화 조각을 설정대로 정리 (압축 · mp4). 그동안 화면엔 '인코딩 중'"""
+    j = q("SELECT * FROM jobs WHERE id=?", (jid,))
+    if not j or not j[0]["filepath"]:
+        return
+    RECOMP.add(jid)
+    try:
+        out = finish_kept(j[0], j[0]["filepath"], job_settings(j[0]))
+        q("UPDATE jobs SET filepath=? WHERE id=?", (out, jid))
+    finally:
+        compress_done(jid)
+        RECOMP.discard(jid)
+        LIVE.pop(jid, None)
 
 
 def auto_merge(job):
@@ -1586,14 +1602,16 @@ QC_LOCK = threading.Lock()  # 품질 검사는 한 번에 하나 (CPU 를 조금
 
 def quality_check(jid):
     """끝난 녹화에서 화면이 멈춘 구간 · 소리가 없는 구간(10초 이상)을 찾아 영상 정보에 기록. 끊김 기록에 안 잡히는 품질 문제용.
-    화면은 키프레임만 풀어서(빠름), 소리는 전부. 낮은 우선순위라 녹화 · 다운로드에 영향 적음. 실패해도 무시"""
+    화면은 참조 프레임만 작게 풀어서(빠름), 소리는 전부. 낮은 우선순위라 녹화 · 다운로드에 영향 적음. 실패해도 무시"""
     with QC_LOCK:
         j = q("SELECT filepath, title FROM jobs WHERE id=? AND status='done'", (jid,))
         if not j or not j[0]["filepath"] or not os.path.isfile(j[0]["filepath"]):
             return
         try:
-            r = subprocess.run(["nice", "-n", "19", "ffmpeg", "-hide_banner", "-nostats", "-skip_frame", "nokey", "-i", j[0]["filepath"],
-                                "-map", "0:v:0?", "-map", "0:a:0?", "-vf", "freezedetect=n=0.003:d=10", "-af", "silencedetect=n=-50dB:d=10",
+            # 참조 프레임만 풀고 작게 줄여 봄 (빠름). 예전엔 키프레임만 봐서, 키프레임 간격이 긴 영상(H.265 압축본 등)의 거의 정지된
+            # 화면(토크 방송)을 '화면 멈춤'으로 잘못 보고 실제 멈춘 시각도 틀렸음 (실측: 오탐 12번 → 0번, 1080p60 이 실시간의 약 12배 속도)
+            r = subprocess.run(["nice", "-n", "19", "ffmpeg", "-hide_banner", "-nostats", "-threads", "2", "-skip_frame", "noref", "-i", j[0]["filepath"],
+                                "-map", "0:v:0?", "-map", "0:a:0?", "-vf", "scale=320:-2,freezedetect=n=0.003:d=10", "-af", "silencedetect=n=-50dB:d=10",
                                 "-f", "null", "-"], capture_output=True, text=True, timeout=6 * 3600)
         except (OSError, subprocess.SubprocessError) as e:
             log(f"녹화 품질 검사 실패: {j[0]['title']} — {e}")
@@ -1992,14 +2010,19 @@ async def lifespan(app):
     os.makedirs(CONFIG, exist_ok=True)
     init_db()
     redo = {}  # 녹화는 끝나고 압축을 기다리던 녹화 → 재시작 후 같은 화질로 이어서 압축
+    resume_live = []  # 재시작으로 끊긴 녹화 → 이어서 녹화할 것
     for j in q("SELECT * FROM jobs WHERE status='downloading' AND live=1"):
         if j["filepath"] and os.path.isfile(j["filepath"]):  # 녹화는 끝나고 압축을 기다리던 중 → 녹화본으로 완료 후 다시 압축 차례로
             q("UPDATE jobs SET status='done', finished=? WHERE id=?", (time.time(), j["id"]))
             if (qu := job_settings(j)["quality"]) in QUALITY:
                 redo.setdefault(qu, []).append(j["id"])
             log(f"재시작으로 끊긴 녹화 압축 → 이어서 압축: {j['title']}")
-        else:  # 재시작으로 끊긴 녹화: 녹화분 보존, 새 파일로 다시 녹화
-            keep_partial(j["video_id"], job_settings(j))
+        elif kept := keep_partial(j["video_id"], job_settings(j)):
+            # 재시작으로 끊긴 녹화: 그때까지 녹화분은 그 작업의 '완료' 파일로 (끊김 표시), 방송이 이어지면 새 조각(-p2…)으로 이어서 녹화
+            # (예전엔 같은 작업이 처음부터 다시 녹화해서, 재시작 전 녹화분이 목록에서 빠진 채 폴더에만 남았음 → 합치기 · 삭제에서도 빠짐)
+            q("UPDATE jobs SET status='done', filepath=?, cut=?, finished=?, error=NULL WHERE id=?", (kept, time.time(), time.time(), j["id"]))
+            resume_live.append(j)
+            log(f"재시작으로 끊긴 녹화 → 녹화분 보존, 이어서 녹화: {j['title']}")
     q("UPDATE jobs SET status='queued' WHERE status='downloading'")  # 재시작 시 중단된 작업 복구
     sweep_temp()  # 강제 종료/취소로 남은 압축 임시파일 정리
     VERSIONS.update(versions())
@@ -2015,6 +2038,9 @@ async def lifespan(app):
     prune_logs()
     for qu, ids in redo.items():
         recompress(Recompress(ids=ids, quality=qu))
+    for j in resume_live:  # 방송이 아직이면 새 조각으로 (방송 확인이 느릴 수 있어 뒤에서) + 끊긴 조각은 설정대로 정리
+        threading.Thread(target=continue_live, args=(j,), daemon=True).start()
+        threading.Thread(target=finish_resumed, args=(j["id"],), daemon=True).start()
     threading.Thread(target=backfill_nfo, daemon=True).start()
     log("시작됨")
     yield
@@ -2179,9 +2205,13 @@ def job_preview(jid: int):
                 t = None
             seeks = ([["-ss", f"{t:.1f}"]] if t is not None else []) + [[]]
         for seek in seeks:
-            hevc = any(c == "hevc" for _, c, *_ in probe_streams(f)[0])  # 사파리 등은 hvc1 태그가 있어야 H.265 재생
+            st = probe_streams(f)[0]
+            hevc = any(c == "hevc" for _, c, *_ in st)  # 사파리 등은 hvc1 태그가 있어야 H.265 재생
+            aac = any(t == "audio" and c == "aac" for t, c, *_ in st)
             r = subprocess.run(["ffmpeg", "-v", "error", *seek, "-i", f, "-t", "10", "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy",
                                 *(["-tag:v", "hvc1"] if hevc else []),
+                                # 녹화 파일(MPEG-TS)의 AAC 소리는 mp4 에 그대로 못 넣음 → 변환 (예전엔 녹화 중 미리보기가 늘 실패했음)
+                                *(["-bsf:a", "aac_adtstoasc"] if aac else []),
                                 "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"], capture_output=True, timeout=60)
             if r.returncode == 0 and len(r.stdout) > 10_000:
                 return Response(r.stdout, media_type="video/mp4", headers={"Cache-Control": "no-store"})
@@ -2229,7 +2259,7 @@ def recompress_one(job, quality):
         compress_turn(jid, platform_of(job["url"]))
         size0 = os.path.getsize(src)
         out, hw = compress(src, probe_duration(src), s, jid, live=bool(job["live"]))
-        if out == src:
+        if hw is None:
             log(f"압축해도 작아지지 않아 그대로 둠: {job['title']}")
             return
         meta = json.loads((q("SELECT meta FROM jobs WHERE id=?", (jid,)) or [{}])[0].get("meta") or "{}")

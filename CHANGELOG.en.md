@@ -4,6 +4,16 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.7.2 — 2026-10-28
+### Fixed (found by running real recordings and downloads in the UI)
+- **YouTube block messages in Korean weren't recognized**, so ChiTube kept sending requests while blocked → now pauses for 1 hour.
+- **Live preview always failed during recording** (AAC audio in MPEG-TS needed conversion for mp4).
+- **The recording before a restart disappeared from the list** → kept as Done (marked cut) and continued as a new part (-p2).
+- **Cut recording parts were left as raw MPEG-TS** (only the last part was processed, so auto-merge failed) → every part is processed per settings.
+- **Compressed mp4 files were treated as "original"** when the output had the same name, so the video info was wrong and encoded files' size wasn't updated (audits then flagged them as possibly damaged).
+- **The recording quality check flagged static scenes as frozen** (1.6.0; 12 false positives → 0) and misplaced real freezes → uses reference frames.
+- Some notices and log lines were half Korean in the English UI.
+
 ## v1.7.1 — 2026-10-28
 ### Fixed
 - **Deleted videos were downloaded again** by subscription checks and audits while still in the channel's latest list → removed videos are remembered and skipped (pasting the URL downloads it again).
