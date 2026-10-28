@@ -332,7 +332,7 @@ Settings → Common → Download audit: Off / once a day / twice a day. **Audit 
 |---|---|
 | File problems | Missing files, changed size (truncated · damaged), unreadable media → "Re-download" |
 | Gave up | Videos that still failed after all automatic retries (3 quick retries for temporary errors + 3 at audits) |
-| Per channel | Compares with the channel's latest 30 and queues missed videos (videos from before you subscribed are skipped) |
+| Per channel | Compares with each YouTube · Chzzk channel's latest 30 and queues missed videos (videos from before you subscribed and removed videos are skipped). During a YouTube block only YouTube is skipped; Chzzk continues |
 | Source gone | Downloaded videos that disappeared from the channel (deleted · private). Your file stays; the card and video info get a **Source gone** tag, removed if the video comes back |
 
 If the container was off at audit time, it runs once when it starts.

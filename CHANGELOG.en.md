@@ -4,6 +4,18 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.8.0 — 2026-10-28
+### Added
+- **The download audit reliably covers Chzzk**: during a YouTube block the audit was skipped or stopped midway, so Chzzk channels weren't compared either → only YouTube is skipped; Chzzk is always audited. "Per YouTuber" is now "Per channel" with a YouTube · Chzzk tag.
+- **Chzzk subscription checks continue during a YouTube block** (they used to pause with YouTube; live watching always continued).
+- **ⓘ About tab** (next to Settings): author, repository, license (MIT), changelog link, the 15 open-source projects used with their licenses and purpose, plus the trademark and usage notice.
+
+### Fixed
+- **Chzzk thumbnails showed a gray "…" image**: replays without a thumbnail URL (age-restricted, processing…) fell back to a YouTube thumbnail URL, which returned YouTube's "no thumbnail" image → the saved thumbnail file is used, otherwise blank.
+- The compression device name ("엔비디아" etc.) stayed in Korean in the English UI.
+### Cleanup
+- Removed unused or duplicate parts: the "check all" API the UI never called, two "re-download" APIs doing the same thing merged into one, the audit's file-length check now uses the shared helper, 21 duplicate or obsolete English translations, unused styles (no behavior change).
+
 ## v1.7.3 — 2026-10-28
 ### Fixed
 - **Channels you had downloaded and then deleted could not be downloaded again via subscription or "download all existing videos"** (1.7.1): the removed-video memory also applied to actions you started yourself and survived deleting the subscription → it now applies only to automatic checks and audits, is cleared when the subscription is deleted, and Settings → Manage has "Clear removed-video list".

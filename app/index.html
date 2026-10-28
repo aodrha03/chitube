@@ -48,11 +48,8 @@
   .grid label { display:grid; gap:4px; color:var(--mute); font-size:12px; }
   details { width:100%; } summary { cursor:pointer; color:var(--mute); margin:12px 0; }
   .stats { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; }
-  .stat { background:var(--card2); border:1px solid var(--line); border-radius:8px; padding:12px; display:grid; gap:4px; }
-  .stat b { font-size:22px; } .stat.ok { border-left:4px solid var(--ok); } .stat.bad { border-left:4px solid var(--acc); } .stat.warn { border-left:4px solid var(--warn); }
   .banner { background:#3a1414; border:1px solid var(--acc); border-radius:8px; padding:12px; }
   table { width:100%; border-collapse:collapse; } td, th { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; } th { color:var(--mute); font-weight:500; }
-  .wrap { overflow-x:auto; }
   .log { max-height:320px; overflow:auto; font-size:13px; display:grid; gap:2px; }
   .log time { color:var(--mute); margin-right:8px; font-variant-numeric:tabular-nums; }
   dialog { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:12px; padding:0; width:min(720px, calc(100vw - 32px)); max-height:90vh; }
@@ -72,6 +69,8 @@
   .filters button { padding:4px 10px; font-size:13px; border-radius:16px; }
   .filters button.on { background:var(--acc); border-color:var(--acc); color:var(--acc-fg, #fff); }
   .warnbox { border:1px solid var(--warn); border-radius:8px; padding:10px 14px; margin-bottom:12px; } .warnbox ul { margin:6px 0 0; padding-left:18px; } .warnbox li { margin:2px 0; }
+  .about { max-width:900px; } .about a { color:var(--acc); } .oss { width:100%; border-collapse:collapse; font-size:14px; }
+  .oss th, .oss td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); } .oss th { font-weight:500; opacity:.7; }
   .recomp { display:inline-flex; gap:6px; align-items:center; } .recomp select { width:auto; }
   .selbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 10px; margin-bottom:12px; border:1px solid var(--acc); border-radius:8px; background:var(--tint); }
   .pager { display:flex; gap:4px; align-items:center; justify-content:center; flex-wrap:wrap; margin-top:16px; }
@@ -186,7 +185,7 @@
   <div class="row">
     <h1>치튜브 <span class="mute" style="font-size:13px; font-weight:500">유튜브 · 치지직 다운로더</span> <span class="mute" id="appver"></span></h1>
     <div style="display:flex; gap:8px; align-items:center"><button id="langbtn" class="sm" title="Language / 언어" onclick="setLang(LANG === 'en' ? 'ko' : 'en')"></button>
-    <nav><button data-tab="youtube" class="on">YouTube</button><button data-tab="chzzk"><i class="czi"></i>치지직</button><button data-tab="status">상태<span id="upddot" style="color:var(--acc)" hidden> ●</span></button><button data-tab="set">설정</button></nav></div>
+    <nav><button data-tab="youtube" class="on">YouTube</button><button data-tab="chzzk"><i class="czi"></i>치지직</button><button data-tab="status">상태<span id="upddot" style="color:var(--acc)" hidden> ●</span></button><button data-tab="set">설정</button><button data-tab="about">ⓘ 정보</button></nav></div>
   </div>
   <div id="wait" class="mute"></div>
   <div id="pausebar" class="banner" hidden></div>
@@ -314,6 +313,21 @@
       <button class="primary" style="margin-top:16px">저장</button>
     </form>
   </section>
+
+  <section data-page="about" class="about" hidden>
+    <h2 style="margin-top:0">치튜브 <span class="mute" translate="no">ChiTube</span> <span class="mute" id="aboutver"></span></h2>
+    <div class="kv">
+      <span>만든 사람</span><div translate="no">Lee Myung Gyun</div>
+      <span>저장소</span><div><a href="https://github.com/aodrha03/chitube" target="_blank" rel="noopener" translate="no">github.com/aodrha03/chitube</a> <span class="mute">— 문제 신고 · 새 버전</span></div>
+      <span>라이선스</span><div><span translate="no">MIT License</span> <span class="mute">— 자유롭게 쓰고 고치고 나눌 수 있음 (저작권 표시 유지)</span></div>
+      <span>변경 기록</span><div><a href="https://github.com/aodrha03/chitube/blob/main/CHANGELOG.md" target="_blank" rel="noopener">버전별 바뀐 점</a></div>
+    </div>
+    <h3 class="sg">사용한 오픈소스</h3>
+    <p class="mute" style="margin:0 0 8px">치튜브는 아래 오픈소스 덕분에 만들어졌습니다. 각 프로젝트의 라이선스는 이름을 눌러 확인할 수 있습니다.</p>
+    <table class="oss"><thead><tr><th>프로젝트 이름</th><th>라이선스 종류</th><th>쓰는 곳</th></tr></thead><tbody><tr><td translate="no"><a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a></td><td translate="no" class="mute">Unlicense</td><td>유튜브 · 치지직 영상 받기</td></tr><tr><td translate="no"><a href="https://ffmpeg.org/" target="_blank" rel="noopener">FFmpeg</a></td><td translate="no" class="mute">LGPL / GPL</td><td>압축 · 녹화 · 합치기 · 미리보기</td></tr><tr><td translate="no"><a href="https://www.videolan.org/developers/x265.html" target="_blank" rel="noopener">x265</a></td><td translate="no" class="mute">GPL-2.0</td><td>H.265 압축 (CPU)</td></tr><tr><td translate="no"><a href="https://gitlab.com/AOMediaCodec/SVT-AV1" target="_blank" rel="noopener">SVT-AV1</a></td><td translate="no" class="mute">BSD-3-Clause-Clear</td><td>AV1 압축 (CPU)</td></tr><tr><td translate="no"><a href="https://aria2.github.io/" target="_blank" rel="noopener">aria2</a></td><td translate="no" class="mute">GPL-2.0</td><td>치지직 다시보기 나눠 받기</td></tr><tr><td translate="no"><a href="https://deno.com/" target="_blank" rel="noopener">deno</a></td><td translate="no" class="mute">MIT</td><td>유튜브 서명 풀기 (yt-dlp 가 사용)</td></tr><tr><td translate="no"><a href="https://fastapi.tiangolo.com/" target="_blank" rel="noopener">FastAPI</a></td><td translate="no" class="mute">MIT</td><td>웹 서버</td></tr><tr><td translate="no"><a href="https://www.uvicorn.org/" target="_blank" rel="noopener">Uvicorn</a></td><td translate="no" class="mute">BSD-3-Clause</td><td>웹 서버 실행</td></tr><tr><td translate="no"><a href="https://docs.pydantic.dev/" target="_blank" rel="noopener">Pydantic</a></td><td translate="no" class="mute">MIT</td><td>요청 값 확인</td></tr><tr><td translate="no"><a href="https://github.com/python-websockets/websockets" target="_blank" rel="noopener">websockets</a></td><td translate="no" class="mute">BSD-3-Clause</td><td>로그인 브라우저 연결</td></tr><tr><td translate="no"><a href="https://www.chromium.org/" target="_blank" rel="noopener">Chromium</a></td><td translate="no" class="mute">BSD-3-Clause 외</td><td>로그인용 브라우저</td></tr><tr><td translate="no"><a href="https://novnc.com/" target="_blank" rel="noopener">noVNC</a></td><td translate="no" class="mute">MPL-2.0</td><td>로그인 브라우저를 웹 화면에 띄우기</td></tr><tr><td translate="no"><a href="https://github.com/LibVNC/x11vnc" target="_blank" rel="noopener">x11vnc · Xvfb</a></td><td translate="no" class="mute">GPL-2.0 · MIT</td><td>로그인 브라우저 가상 화면</td></tr><tr><td translate="no"><a href="https://sqlite.org/" target="_blank" rel="noopener">SQLite</a></td><td translate="no" class="mute">Public Domain</td><td>데이터베이스</td></tr><tr><td translate="no"><a href="https://www.python.org/" target="_blank" rel="noopener">Python</a></td><td translate="no" class="mute">PSF-2.0</td><td>프로그램 언어</td></tr></tbody></table>
+    <p class="mute" style="margin-top:16px">YouTube 는 Google LLC 의, 치지직(CHZZK)은 NAVER Corp. 의 상표입니다. 치튜브는 두 회사와 관련이 없는 비공식 도구이며, 두 회사의 후원이나 승인을 받지 않았습니다.
+      개인 소장 · 백업 용도의 도구로, 받은 영상의 저작권과 각 플랫폼 이용약관을 지키는 책임은 사용자에게 있습니다.</p>
+  </section>
 </main>
 
 <dialog id="dlg" onclick="event.target === this && this.close()" onclose="this.innerHTML = ''"></dialog>
@@ -342,8 +356,6 @@ const EN = {
   '녹화를 멈추고 지금까지 녹화한 부분을 저장할까요?': 'Stop recording and save what has been recorded so far?',
   '받기를 멈추고 받던 파일을 지울까요?': 'Stop downloading and delete the partial file?',
   '기존 파일을 지우고 다시 받을까요?': 'Delete the existing file and download again?',
-  '구독 삭제? (받은 파일은 유지)': 'Delete subscription? (downloaded files are kept)',
-  '목록에서 삭제? (파일은 유지)': 'Remove from list? (file is kept)',
   '저장된 로그인 쿠키를 지울까요?': 'Delete the saved login cookies?',
   '대기열에서 뺄까요?': 'Remove from the queue?',
   // 화질 프리셋·설명
@@ -377,9 +389,7 @@ const EN = {
   '속도 제한 (예: 10M · 비우면 무제한)': 'Speed limit (e.g. 10M · empty = unlimited)',
   '자동 (엔비디아 → 인텔 퀵싱크 → CPU)': 'Auto (NVIDIA → Intel Quick Sync → CPU)',
   '전부 (직접 만든 자막 + 자동 생성 원어)': 'All (manual subtitles + auto-generated original language)',
-  '그래픽카드로, 한계면 CPU 로 (추천)': 'With the GPU, CPU when it can\'t keep up (recommended)',
   '그래픽카드로만 (안 되면 녹화 후 압축)': 'GPU only (otherwise compress after recording)',
-  '끄기 (녹화 후 압축)': 'Off (compress after recording)',
   '동시 다운로드 · 2개 이상은 차단 위험': 'Concurrent downloads · 2+ risks blocking',
   '봇 차단을 피하는 설정 · 기본값이 안전': 'Settings that avoid bot blocking · defaults are safe',
   '하루 2번 (새벽 4시 · 오후 4시)': 'Twice a day (4 AM · 4 PM)', '하루 1번 (새벽 4시)': 'Once a day (4 AM)',
@@ -440,11 +450,10 @@ const EN = {
   '방송 중에 녹화가 끊김 · 영상 정보에서 끊긴 지점 확인': 'Recording was cut during the broadcast · see where in the video info',
   '이 브라우저에서 재생할 수 없는 형식입니다 (H.265 는 사파리·엣지·하드웨어 지원 크롬에서 재생) → 아래': 'This browser can\'t play this format (H.265 plays in Safari, Edge and hardware-supported Chrome) → use',
   '로 저장해서 재생': ' below to save and play it', '파일이 없습니다 (삭제·이동됨) → 아래': 'File is missing (deleted/moved) → use', '로 다시 받을 수 있음': ' below to download it again',
-  '▶ 지금 받는 부분 확인 (최근 10초)': '▶ Check what\'s downloading (last 10s)', '미리보기 만드는 중…': 'Making preview…', '↻ 최신으로': '↻ Latest', '— 다시 시도': '— try again',
+  '▶ 지금 받는 부분 확인 (최근 10초)': '▶ Check what\'s downloading (last 10s)', '↻ 최신으로': '↻ Latest', '— 다시 시도': '— try again',
   '방송 중에 녹화가 끊겨 파일': 'Recording was cut during the broadcast; split into', '개로 나뉨 · 누르면 그 파일 정보': ' files · click for that file',
   '⚠ 녹화 끊김 기록': '⚠ Recording cuts', '번째 파일 ·': ' file ·', '→ 끝까지 녹화': '→ recorded to the end', '→ 녹화 중': '→ recording', ')에서 끊김': ') cut',
-  '↳ 다음 파일 시작까지 약': '↳ about', '개 한 파일로 합치기': ' parts → merge into one file', '합치는 중… (큰 파일은 몇 분)': 'Merging… (a few minutes for big files)',
-  '다시 압축해서 합치는 중… (끝나면 로그에 표시)': 'Re-encoding and merging… (shown in the log when done)', '개를 한 파일로 합쳤습니다': ' parts merged into one file',
+  '↳ 다음 파일 시작까지 약': '↳ about', '개 한 파일로 합치기': ' parts → merge into one file',
   '■ 녹화 중지 (저장)': '■ Stop recording (save)', '받으면서 압축 중': 'Compressing while downloading', '녹화하면서 압축 중': 'Compressing while recording',
   '라이브 녹화 중': 'Recording live', '다운로드 중': 'Downloading', '(실시간 녹화)': '(live recording)', '원본 그대로 ·': 'Original ·', '% · 압축본': '% · compressed', '% 절약)': '% saved)',
   '다운로드 취소': 'Cancel download', '대기 취소': 'Cancel', '맨 앞으로': 'Move to front', '다시 받기': 'Download again', '목록에서 삭제': 'Remove from list', '파일 받기': 'Save file',
@@ -453,16 +462,15 @@ const EN = {
   '치튜브': 'ChiTube', '유튜브 · 치지직 다운로더': 'YouTube · Chzzk Downloader', 'YouTube 새 영상 확인': 'YouTube new video checks', '치지직 새 영상 확인': 'Chzzk new video checks',
   '생방송 10초마다 감시 중': 'watching live every 10s', '다운로드 기다리는 중': 'waiting to download', '아래 최근 오류 확인': 'see recent errors below',
   '유튜브 24시간': 'YouTube 24 h', '하루 최대 개수': 'daily max', '정상 · 가동': 'OK · up', '프로그램 최신 ·': 'Up to date ·', '업데이트 있음:': 'Updates available:',
-  '재시작해서 업데이트': 'Restart to update', '재시작 중... 잠시 후 자동으로 다시 연결됩니다': 'Restarting... reconnecting automatically shortly',
+  '재시작해서 업데이트': 'Restart to update',
   '업데이트 확인 중...': 'Checking for updates...', '점검 기록 없음': 'No audit yet', '자동 점검 꺼짐': 'Auto audit off', '점검 중...': 'Auditing...',
-  '파일 문제': 'File problems', '다운로드 포기': 'Gave up', '유튜버별 비교': 'Per-channel comparison', '놓친 영상': 'Missed videos', '파일 정상': 'Files OK', '문제 없음': 'No problems',
+  '파일 문제': 'File problems', '다운로드 포기': 'Gave up', '놓친 영상': 'Missed videos', '파일 정상': 'Files OK', '문제 없음': 'No problems',
   '모두 숨기기': 'Hide all', '숨기기': 'Hide', '목록에서 숨기기 (영상 정보에는 남음)': 'Hide from lists (still shown in video info)', '확인함 · 오류 목록에': 'Seen · in the error list:',
-  '지금 점검': 'Audit now', '지금 확인': 'Check now', '최근 활동': 'Recent activity', '최근 오류': 'Recent errors', '이상 없음': 'OK', '유튜브 차단': 'YouTube block', '동시 개수': 'Concurrency',
-  '다음 다운로드까지': 'Next download in', '초 (차단 예방 대기)': 's (pacing to prevent blocking)', '서버 연결 끊김 - 재연결 시도 중...': 'Disconnected from server - reconnecting...',
+  '지금 점검': 'Audit now', '지금 확인': 'Check now', '최근 활동': 'Recent activity', '최근 오류': 'Recent errors', '유튜브 차단': 'YouTube block', '동시 개수': 'Concurrency',
+  '다음 다운로드까지': 'Next download in', '초 (차단 예방 대기)': 's (pacing to prevent blocking)',
   '디스크 공간 부족 → 그 디스크에 저장하는 새 다운로드·녹화를 멈췄습니다.': 'Low disk space → new downloads/recordings to that disk are paused.',
   '— 파일을 정리하거나 설정 → 공통 → 최소 여유 공간을 낮추면 자동으로 다시 받습니다.': '— free up space or lower Settings → Common → Minimum free space and downloads resume automatically.',
   'YouTube 탭에서 🔑 로그인하거나 동시 다운로드 수를 줄이면 도움이 됩니다.': 'Logging in on the YouTube tab or lowering concurrent downloads helps.',
-  '취소함 — 봇 감지 쉬는 시간이 끝나면 다시 받아 주세요': 'Cancelled — download again after the bot-detection pause ends',
   '유튜브 차단 신호 감지 →': 'YouTube block signal detected →', '까지 다운로드/확인을 쉽니다.': ' — downloads/checks paused until then.', '불이익 확인 후 지금 재개': 'Resume now (I understand the risk)',
   '한도 도달 · 유튜브만 대기': 'Limit reached · only YouTube waits', '공간 부족 · 새 다운로드 멈춤': 'Low space · new downloads paused',
   // 오류 (한국어로 바꾼 것 → 영어)
@@ -477,7 +485,6 @@ const EN = {
   '성인 인증 필요 — 치지직 로그인(성인 인증된 계정) 후 \'다시 받기\' (자동 재시도 안 함)': 'Age verification required — log in to Chzzk (verified account), then "Download again" (no auto retry)',
   '아직 미리보기를 만들 수 없습니다 (받기 시작 직후이거나, 끝까지 받아야 열리는 형식)': 'Can\'t make a preview yet (just started, or a format that opens only when complete)',
   '모든 조각이 \'완료\'이고 파일이 있어야 합칠 수 있습니다 (녹화 중·오류·파일 없음)': 'All parts must be "done" with files present to merge (recording/error/missing file)',
-  '없음 (서버에 인텔 내장 그래픽이 없음, 또는 맥·윈도우 Docker Desktop)': 'missing (no Intel integrated graphics on the server, or Mac/Windows Docker Desktop)',
   '조각마다 영상 형식(코덱·해상도)이 달라 그대로는 이어 붙일 수 없습니다': 'Parts have different video formats (codec/resolution) and can\'t be joined as-is',
   '로그인이 안 된 상태입니다. 브라우저에서 로그인을 끝낸 뒤 눌러주세요': 'Not logged in yet. Finish logging in in the browser, then press this',
   '브라우저가 열려 있지 않습니다. \'브라우저 열기\'부터 해주세요 (': 'The browser isn\'t open. Press "Open browser" first (',
@@ -485,7 +492,7 @@ const EN = {
   '녹화 조각 합치기 실패 (원본 조각은 그대로):': 'Merging recording parts failed (original parts kept):', '생방송 녹화로 받은 방송이라 다시보기는 건너뜀:': 'Skipped replay (already recorded live):',
   '로그인 완전 초기화 (쿠키·브라우저 기록 삭제)': 'Login reset (cookies and browser data deleted)', '이미 합치는 중입니다 (끝나면 로그에 표시)': 'Already merging (shown in the log when done)',
   '디스크 공간 부족 → 새 다운로드 멈춤:': 'Low disk space → new downloads paused:', '개 생성 (Jellyfin/Kodi 용)': ' created (for Jellyfin/Kodi)',
-  '압축해도 작아지지 않아 원본 화질 유지:': 'Compression didn\'t make it smaller, kept original:', '인코딩 실패 → CPU 로 다시 시도:': 'Encoding failed → retrying on CPU:',
+  '압축해도 작아지지 않아 원본 화질 유지:': 'Compression didn\'t make it smaller, kept original:',
   '예정된 라이브, 시작 후 다시 확인:': 'Scheduled live, will check again after it starts:', '이 프로그램의 백업 파일이 아닙니다': 'Not a backup file of this program',
   '파일이 없습니다 (삭제·이동됨)': 'File is missing (deleted/moved)', '파일 없음 (삭제/이동됨)': 'File missing (deleted/moved)', '다운로드 점검 완료: 놓친 영상': 'Audit done: missed videos',
   '개 다시 압축해서 합치는 중:': ' parts being re-encoded and merged:', '브라우저 로그인 → 쿠키 저장': 'Browser login → cookies saved', '녹화 끊김 → 이어서 녹화 (': 'Recording cut → continuing (',
@@ -495,7 +502,7 @@ const EN = {
   '요청한 화질을 못 받음 →': 'Requested quality unavailable →', '유튜브 봇 감지로 쉬는 중': 'Paused due to YouTube bot detection', '치지직 채널 조회 실패:': 'Chzzk channel lookup failed:',
   '개를 영상별 폴더로 정리': ' moved into per-video folders', '기존 영상 가져오는 중:': 'Fetching existing videos:', '기존 영상 가져오기:': 'Fetched existing videos:',
   '받으면서 압축 실패(': 'Compress-while-downloading failed (', '녹화 중지 → 저장:': 'Recording stopped → saved:', '분 이상이어야 합니다': ' min or more required',
-  '합칠 조각이 없습니다': 'No parts to merge', '개 추가, 파일 문제': ' added, file problems', '영상 인코딩 장치:': 'Video encoder:', '다운로드 점검 시작': 'Audit started',
+  '합칠 조각이 없습니다': 'No parts to merge', '개 추가, 파일 문제': ' added, file problems', '다운로드 점검 시작': 'Audit started',
   '재생 불가 (손상)': 'Unplayable (corrupt)', '유튜브 조회 실패:': 'YouTube lookup failed:', '일시정지 수동 해제': 'Pause lifted manually', '라이브 녹화 시작:': 'Live recording started:',
   '백업 불러옴: 설정': 'Backup restored: settings', '임시파일 삭제 실패': 'Failed to delete temp file', '선택지에 없는 값': 'not an allowed value', '로그인 쿠키 저장': 'Login cookies saved',
   '썸네일 파일 없음': 'No thumbnail file', '길이가 맞지 않음': 'length mismatch', '(녹화분 보존)': '(recording kept)', '압축 임시파일': 'compression temp files', '합치기 실패:': 'Merge failed:',
@@ -507,8 +514,8 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '개만 표시': ' shown', '… 처음': '… first', '지운 영상이라 건너뜀': 'skipped (removed by you)', '분량': 'of original recordings', '다시 시도': 'Retry', '다시 압축해서 합치는 중… (끝나면 로그에 표시)': 'Re-encoding and merging… (shown in the log when done)', '미리보기 만드는 중…': 'Building preview…', '서버 연결 끊김 - 재연결 시도 중...': 'Disconnected from server - reconnecting...', '재시작 중... 잠시 후 자동으로 다시 연결됩니다': 'Restarting... will reconnect automatically', '조회 중...': 'Looking up...', '취소함 — 봇 감지 쉬는 시간이 끝나면 다시 받아 주세요': 'Cancelled — download again after the bot-detection pause ends', '합치는 중… (큰 파일은 몇 분)': 'Merging… (a few minutes for large files)', '확인 중...': 'Checking...', '개를 한 파일로 합쳤습니다': ' parts merged into one file', '개 압축 시작': ' compression(s) started', '개를 압축할까요?': ' videos — compress them?', '(완료된 영상만 · 작아질 때만 바꾸고 원본은 지움 · 동시 압축 개수만큼 차례로)': '(done videos only · replaced only if smaller, original deleted · runs up to the concurrent-compression limit)', '. 지금 재시작하면 녹화가 끊깁니다.': '. Restarting now will cut the recording.', '녹화가 모두 끝나면 자동으로 업데이트할까요?': 'Update automatically when all recordings end?', '(취소를 누르면 다음 확인 창에서 지금 바로 할지 고를 수 있습니다)': '(press Cancel to choose updating right now in the next dialog)', '개를 녹화 중입니다': ' being recorded', '녹화를 끊고 지금 바로 업데이트할까요? (그때까지 녹화분은 보존, 재시작 후 새 파일로 이어서 녹화)': 'Cut the recording and update now? (recorded part is kept; recording continues in a new file after the restart)', '2개 이상은 유튜브 차단(봇 감지) 위험이 큽니다': '2 or more risks a YouTube block (bot detection)', '유튜브 동시 다운로드': 'YouTube concurrent downloads', '최소 여유 공간이 0 (끔): 디스크가 가득 차면 받던 영상 · 녹화가 깨집니다': 'Minimum free space is 0 (off): videos and recordings break when the disk fills up', '초: 길수록 멈췄을 때 빠지는 구간이 깁니다 (기본 45초)': ' s: the longer it is, the more is missing when a recording stalls (default 45 s)', '이 카드 측정값': 'This card measured', '개가 적당합니다': ' is about right', '보급형 카드(RTX A400 · GTX 1650 등)는 1080p 생방송 2~3개가 한계입니다': 'Entry-level cards (RTX A400, GTX 1650…) handle about 2–3 1080p streams', '— 넘으면 녹화가 멈출 수 있음 (설정 → 공통 → 압축)': '— more may stall recordings (Settings → Common → Compression)', 'CPU 로 동시에 압축': 'Concurrent CPU compressions', '개는 이 서버(코어': ' is a lot for this server (', '개)에 많습니다': ' cores)', '→ 생방송 녹화 · 다운로드가 느려질 수 있음 (설정 → YouTube / 치지직 → 동시 압축)': '→ recordings and downloads may slow down (Settings → YouTube / Chzzk → Concurrent compressions)', '지운 영상 기록 초기화': 'Clear removed-video list', '목록에서 지운 영상은 구독 확인으로 다시 받지 않게 기억함': 'Videos you removed are remembered so subscriptions don\'t download them again', '개 기록을 지웠습니다': ' entries cleared', '지운 영상 기록을 지울까요? 구독 확인 · 점검이 예전에 지운 영상도 다시 받습니다.': 'Clear the removed-video list? Subscriptions and audits will download those videos again.', '남은 공간': 'free space', '≈ 원본 녹화 약': '≈ about', '시간 분량': 'h of original recordings', '녹화 끊김 (녹화분 보존)': 'Recording cut (recording kept)',
-  '녹화 끊김 → 이어서 녹화': 'Recording cut → continuing', '번째 파일)': ')', '인코딩 완료': 'Encoding done', '인코딩 시작': 'Encoding started', '구독 삭제? (받은 파일은 유지 · 아직 안 받은 대기 영상은 대기열에서 빠짐)': 'Delete subscription? (downloaded files are kept · queued videos are removed from the queue)', '(구독 확인으로 다시 받지 않음)': '(subscriptions won\'t download it again)', '목록에서 삭제? (파일은 유지 · 구독 확인으로 다시 받지 않음)': 'Remove from list? (file kept · subscriptions won\'t download it again)', '파일까지 삭제': 'Delete with files', '영상 파일까지 지울까요?': 'Delete the video file too?', '썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다.': 'Thumbnail, subtitles and .nfo are deleted too. This cannot be undone.',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '채널별 비교': 'Per channel', '유튜브 차단 신호로 유튜브 비교는 건너뜀 (치지직은 계속)': 'YouTube comparison skipped due to a block signal (Chzzk continues)', 'ⓘ 정보': 'ⓘ About', '만든 사람': 'Author', '저장소': 'Repository', '— 문제 신고 · 새 버전': '— report issues · new versions', '라이선스': 'License', '— 자유롭게 쓰고 고치고 나눌 수 있음 (저작권 표시 유지)': '— free to use, modify and share (keep the copyright notice)', '변경 기록': 'Changelog', '버전별 바뀐 점': 'What changed in each version', '사용한 오픈소스': 'Open source used', '치튜브는 아래 오픈소스 덕분에 만들어졌습니다. 각 프로젝트의 라이선스는 이름을 눌러 확인할 수 있습니다.': 'ChiTube is built on the open-source projects below. Click a name to see its license.', '프로젝트 이름': 'Project', '라이선스 종류': 'License', '쓰는 곳': 'Used for', '유튜브 · 치지직 영상 받기': 'Downloading YouTube · Chzzk videos', '압축 · 녹화 · 합치기 · 미리보기': 'Compression · recording · merging · preview', 'H.265 압축 (CPU)': 'H.265 compression (CPU)', 'AV1 압축 (CPU)': 'AV1 compression (CPU)', '치지직 다시보기 나눠 받기': 'Parallel Chzzk replay downloads', '유튜브 서명 풀기 (yt-dlp 가 사용)': 'YouTube signature solving (used by yt-dlp)', '웹 서버': 'Web server', '웹 서버 실행': 'Running the web server', '요청 값 확인': 'Request validation', '로그인 브라우저 연결': 'Login browser connection', '로그인용 브라우저': 'Browser for logging in', '로그인 브라우저를 웹 화면에 띄우기': 'Showing the login browser in the web UI', '로그인 브라우저 가상 화면': 'Virtual display for the login browser', '데이터베이스': 'Database', '프로그램 언어': 'Programming language', 'YouTube 는 Google LLC 의, 치지직(CHZZK)은 NAVER Corp. 의 상표입니다. 치튜브는 두 회사와 관련이 없는 비공식 도구이며, 두 회사의 후원이나 승인을 받지 않았습니다.': 'YouTube is a trademark of Google LLC, and Chzzk (치지직) is a trademark of NAVER Corp. ChiTube is an unofficial tool, not affiliated with, sponsored or endorsed by either company.', '개인 소장 · 백업 용도의 도구로, 받은 영상의 저작권과 각 플랫폼 이용약관을 지키는 책임은 사용자에게 있습니다.': 'It is a tool for personal archiving and backup; you are responsible for copyright and each platform’s terms of service.', '개만 표시': ' shown', '… 처음': '… first', '지운 영상이라 건너뜀': 'skipped (removed by you)', '분량': 'of original recordings', '다시 압축해서 합치는 중… (끝나면 로그에 표시)': 'Re-encoding and merging… (shown in the log when done)', '미리보기 만드는 중…': 'Building preview…', '서버 연결 끊김 - 재연결 시도 중...': 'Disconnected from server - reconnecting...', '재시작 중... 잠시 후 자동으로 다시 연결됩니다': 'Restarting... will reconnect automatically', '취소함 — 봇 감지 쉬는 시간이 끝나면 다시 받아 주세요': 'Cancelled — download again after the bot-detection pause ends', '합치는 중… (큰 파일은 몇 분)': 'Merging… (a few minutes for large files)', '개를 한 파일로 합쳤습니다': ' parts merged into one file', '개를 압축할까요?': ' videos — compress them?', '(완료된 영상만 · 작아질 때만 바꾸고 원본은 지움 · 동시 압축 개수만큼 차례로)': '(done videos only · replaced only if smaller, original deleted · runs up to the concurrent-compression limit)', '. 지금 재시작하면 녹화가 끊깁니다.': '. Restarting now will cut the recording.', '녹화가 모두 끝나면 자동으로 업데이트할까요?': 'Update automatically when all recordings end?', '(취소를 누르면 다음 확인 창에서 지금 바로 할지 고를 수 있습니다)': '(press Cancel to choose updating right now in the next dialog)', '개를 녹화 중입니다': ' being recorded', '녹화를 끊고 지금 바로 업데이트할까요? (그때까지 녹화분은 보존, 재시작 후 새 파일로 이어서 녹화)': 'Cut the recording and update now? (recorded part is kept; recording continues in a new file after the restart)', '2개 이상은 유튜브 차단(봇 감지) 위험이 큽니다': '2 or more risks a YouTube block (bot detection)', '유튜브 동시 다운로드': 'YouTube concurrent downloads', '최소 여유 공간이 0 (끔): 디스크가 가득 차면 받던 영상 · 녹화가 깨집니다': 'Minimum free space is 0 (off): videos and recordings break when the disk fills up', '초: 길수록 멈췄을 때 빠지는 구간이 깁니다 (기본 45초)': ' s: the longer it is, the more is missing when a recording stalls (default 45 s)', '이 카드 측정값': 'This card measured', '개가 적당합니다': ' is about right', '보급형 카드(RTX A400 · GTX 1650 등)는 1080p 생방송 2~3개가 한계입니다': 'Entry-level cards (RTX A400, GTX 1650…) handle about 2–3 1080p streams', '— 넘으면 녹화가 멈출 수 있음 (설정 → 공통 → 압축)': '— more may stall recordings (Settings → Common → Compression)', 'CPU 로 동시에 압축': 'Concurrent CPU compressions', '개는 이 서버(코어': ' is a lot for this server (', '개)에 많습니다': ' cores)', '→ 생방송 녹화 · 다운로드가 느려질 수 있음 (설정 → YouTube / 치지직 → 동시 압축)': '→ recordings and downloads may slow down (Settings → YouTube / Chzzk → Concurrent compressions)', '지운 영상 기록 초기화': 'Clear removed-video list', '목록에서 지운 영상은 구독 확인으로 다시 받지 않게 기억함': 'Videos you removed are remembered so subscriptions don\'t download them again', '개 기록을 지웠습니다': ' entries cleared', '지운 영상 기록을 지울까요? 구독 확인 · 점검이 예전에 지운 영상도 다시 받습니다.': 'Clear the removed-video list? Subscriptions and audits will download those videos again.', '남은 공간': 'free space', '≈ 원본 녹화 약': '≈ about', '시간 분량': 'h of original recordings', '녹화 끊김 (녹화분 보존)': 'Recording cut (recording kept)',
+  '녹화 끊김 → 이어서 녹화': 'Recording cut → continuing', '번째 파일)': ')', '인코딩 완료': 'Encoding done', '구독 삭제? (받은 파일은 유지 · 아직 안 받은 대기 영상은 대기열에서 빠짐)': 'Delete subscription? (downloaded files are kept · queued videos are removed from the queue)', '(구독 확인으로 다시 받지 않음)': '(subscriptions won\'t download it again)', '목록에서 삭제? (파일은 유지 · 구독 확인으로 다시 받지 않음)': 'Remove from list? (file kept · subscriptions won\'t download it again)', '파일까지 삭제': 'Delete with files', '영상 파일까지 지울까요?': 'Delete the video file too?', '썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다.': 'Thumbnail, subtitles and .nfo are deleted too. This cannot be undone.',
   '목록에서 지우고, 남은 조각 · 썸네일 같은 딸린 파일도 지울까요?': 'Remove from the list and delete leftover files (parts, thumbnail)?', '개를 영상 파일까지 지울까요?': ' videos — delete the files too?', '(받는 중인 영상은 건너뜀)': '(videos still downloading are skipped)', '받은 직후 검사:': 'Post-download check:', '길이가 원본과 다름': 'Length differs from the source', '품질 검사': 'Quality check', '이상 없음': 'No issues', '(10초 넘는 화면 멈춤 · 무음 없음)': '(no freeze or silence over 10s)', '화면 멈춤': 'Frozen video', '무음': 'Silence', '측정:': 'Measured:', '동시에 녹화하면서 압축 권장': 'recommended concurrent live GPU compressions', '⚠ 확인해 볼 설정': '⚠ Settings to check', '진단 파일 받기': 'Download diagnostics', '로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만': 'Logs, status, settings and active jobs in one file (no login info)',
   '끊긴 녹화는 다시보기로 메우기 (치지직)': 'Fill recording gaps with the replay (Chzzk)', '켜기 (끊겼던 방송은 다시보기도 받음)': 'On (also download the replay of interrupted streams)',
   '다시보기를 받은 뒤 끊긴 녹화본': 'Interrupted recording after the replay is downloaded', '그대로 두기': 'Keep', '지우기 (다시보기만 남김)': 'Delete (keep only the replay)',
@@ -616,6 +623,9 @@ const api = (u, o = {}) => fetch(u, { headers: { 'Content-Type': 'application/js
   .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText); return r.json(); });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const thumb = (id, q = 'mqdefault') => `https://i.ytimg.com/vi/${encodeURIComponent(id)}/${q}.jpg`;
+// 썸네일 주소가 없을 때: 유튜브는 영상 ID 로 만든 주소, 치지직은 받아 둔 썸네일 파일 (없으면 빈칸)
+// (예전엔 치지직에도 유튜브 주소를 써서, 유튜브의 회색 '썸네일 없음(…)' 그림이 떴음 — 성인 · 처리 중 다시보기 등)
+const jobThumb = (j, q) => j.thumb || (platOf(j.url) === 'chzzk' ? `/api/jobs/${j.id}/thumb` : thumb(j.video_id, q));
 const size = b => b ? (b >= 1073741824 ? (b / 1073741824).toFixed(2) + ' GB' : (b / 1048576).toFixed(1) + ' MB') : '-';
 // 길이 (24시간 넘는 방송도: 예전엔 시간이 24로 나눈 나머지로 보여 26시간 방송이 02:00:00 이었음)
 const dur = s => { if (!s) return '-'; s = Math.round(s); const p = n => String(n).padStart(2, '0'); return (s >= 3600 ? `${Math.floor(s / 3600)}:` : '') + `${p(Math.floor(s / 60) % 60)}:${p(s % 60)}`; };
@@ -1016,14 +1026,14 @@ function setCards(el, items) {  // items = [[키, html], …]
   el._html = null;  // setHTML 과 섞여도 다음에 다시 그리게
 }
 // 지금 압축하는 장치 (CPU · 엔비디아 · 인텔 퀵싱크) — 받으면서 · 녹화하면서 압축, 다 받은 뒤 · 녹화 후 압축, 인코딩
-const encTag = j => j.encoder && !j.waiting && (j.streaming || j.status === 'compressing') ? ` · <b translate="no">${esc(j.encoder === 'CPU' ? 'CPU' : j.encoder)}</b>` : '';
+const encTag = j => j.encoder && !j.waiting && (j.streaming || j.status === 'compressing') ? ` · <b>${esc(j.encoder)}</b>` : '';
 const card = (j, p, pos = 0) => {
   const active = ['downloading', 'recording', 'compressing'].includes(j.status), sel = p && VIEW[p].sel;
   return `
   <div class="vid ${sel?.has(j.id) ? 'pick' : ''}" onclick="${sel ? `pickJob('${p}',${j.id})` : `detail(${j.id})`}">
     ${sel ? '<span class="chk"></span>' : ''}
     ${j.kind === 'shorts' ? '<span class="tag kind">숏츠</span>' : j.live || j.kind === 'streams' ? '<span class="tag kind red">라이브</span>' : ''}
-    <img loading="lazy" src="${thumbSrc(j, esc(j.thumb || thumb(j.video_id)))}" alt="" referrerpolicy="no-referrer" onerror="${thumbFallback(j.id)}">
+    <img loading="lazy" src="${thumbSrc(j, esc(jobThumb(j)))}" alt="" referrerpolicy="no-referrer" onerror="${thumbFallback(j.id)}">
     ${j.status === 'done' ? '' : `<div class="bar"><i style="width:${(j.progress || 0).toFixed(1)}%"></i></div>`}
     <div class="body">
       <div class="t" translate="no">${esc(j.title || j.url)}</div>
@@ -1194,7 +1204,7 @@ function auditTabs(r) {
       <button class="sm" onclick="confirm('기존 파일을 지우고 다시 받을까요?') && act('/api/jobs/${i.id}/redownload','POST')">다시 받기</button></div>`],
     ['gone', '원본 사라짐', r.gone || [], g => `<div class="arow"><a onclick="detail(${g.id})" translate="no">${esc(g.title || '')}</a><span class="mute">채널 목록에서 사라짐 · 받은 파일은 그대로</span><span></span></div>`],
     ['gaveup', '다운로드 포기', r.gave_up, g => `<div class="arow"><a onclick="detail(${g.id})" translate="no">${esc(g.title || '')}</a><span class="err" title="${esc(g.error)}">${esc(koErr(g.error))}</span><span></span></div>`],
-    ['subs', '유튜버별 비교', r.subs, x => `<div class="arow"><span translate="no">${esc(x.name)}</span><span class="mute">최신 ${x.listed}개 비교${x.missing ? ` · <b>놓친 ${x.missing}개 → 대기열</b>` : ''}${x.removed ? ` · 지운 영상이라 건너뜀 ${x.removed}개` : ''}</span><span class="err">${x.error ? esc(koErr(x.error).slice(0, 60)) : ''}</span></div>`]
+    ['subs', '채널별 비교', r.subs, x => `<div class="arow"><span>${x.platform ? `<span class="tag">${PLAT[x.platform].name}</span> ` : ''}<span translate="no">${esc(x.name)}</span></span><span class="mute">최신 ${x.listed}개 비교${x.missing ? ` · <b>놓친 ${x.missing}개 → 대기열</b>` : ''}${x.removed ? ` · 지운 영상이라 건너뜀 ${x.removed}개` : ''}</span><span class="err">${x.error ? esc(koErr(x.error).slice(0, 60)) : ''}</span></div>`]
   ].filter(t => t[2].length);
   if (!tabs.length) return '<div class="mute" style="margin-top:12px">문제 없음</div>';
   if (!tabs.some(t => t[0] === ATAB)) ATAB = tabs[0][0];
@@ -1205,7 +1215,7 @@ function auditTabs(r) {
 
 function renderUpdates(st) {
   const u = st.updates, out = u?.items.filter(i => i.outdated) || [];
-  document.getElementById('appver').textContent = 'v' + st.app_version;
+  document.getElementById('appver').textContent = document.getElementById('aboutver').textContent = 'v' + st.app_version;
   document.getElementById('upddot').hidden = !out.length;
   if (tab !== 'status') return;
   H(document.getElementById('updinfo')).html = !u ? '업데이트 확인 중...' : out.length
@@ -1269,7 +1279,7 @@ async function detail(id) {
   const j = await api('/api/jobs/' + id), m = j.meta || {}, dlg = document.getElementById('dlg');
   if (j.error && !j.err_seen && ['error', 'done'].includes(j.status)) api('/api/errors/seen', { method: 'POST', body: JSON.stringify({ ids: [j.id] }) }).then(() => refresh()).catch(() => {});  // 열어 본 오류 = 확인함
   const c = m.compressed;
-  const poster = esc(j.thumb || thumb(j.video_id, 'hqdefault'));
+  const poster = esc(jobThumb(j, 'hqdefault'));
   // 받은 영상은 바로 재생 (자막 있으면 함께). H.265 는 브라우저에 따라 못 틀 수 있어 안내
   const media = j.status === 'done' && j.filepath && !j.file_ok
     ? `<img src="${poster}" alt="" referrerpolicy="no-referrer" onerror="${thumbFallback(j.id)}">
@@ -1314,7 +1324,7 @@ async function detail(id) {
         ${j.status === 'done' && j.file_ok && !j.recomp ? `<span class="recomp"><select id="cq-${j.id}">${cqOptions()}</select><button onclick="recompress([${j.id}], document.getElementById('cq-${j.id}').value).then(ok => ok && dlg.close())">인코딩</button></span>` : ''}
         ${j.status === 'done' && j.file_ok ? `<a href="/api/jobs/${j.id}/file?download=1"><button>파일 받기</button></a>` : ''}
         ${j.status === 'queued' ? `<button onclick="act('/api/jobs/${j.id}/top','POST'); dlg.close()">맨 앞으로</button>` : ''}
-        ${['error', 'done', 'cancelled'].includes(j.status) && !(j.live && j.file_ok) ? `<button onclick="(${j.status !== 'done'} || confirm('기존 파일을 지우고 다시 받을까요?')) && (act('/api/jobs/${j.id}/retry','POST'), dlg.close())">다시 받기</button>` : ''}
+        ${['error', 'done', 'cancelled'].includes(j.status) && !(j.live && j.file_ok) ? `<button onclick="(${j.status !== 'done'} || confirm('기존 파일을 지우고 다시 받을까요?')) && (act('/api/jobs/${j.id}/redownload','POST'), dlg.close())">다시 받기</button>` : ''}
         ${['error', 'done', 'cancelled', 'queued'].includes(j.status) ? `<button onclick="confirm('목록에서 삭제? (파일은 유지 · 구독 확인으로 다시 받지 않음)') && (act('/api/jobs/${j.id}','DELETE'), dlg.close())">목록에서 삭제</button>` : ''}
         ${['error', 'done', 'cancelled', 'queued'].includes(j.status) && !j.recomp ? `<button class="danger" onclick="confirm('${j.file_ok ? '영상 파일까지 지울까요?\\n썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다. (구독 확인으로 다시 받지 않음)' : '목록에서 지우고, 남은 조각 · 썸네일 같은 딸린 파일도 지울까요?'}') && (act('/api/jobs/${j.id}?files=1','DELETE'), dlg.close())">파일까지 삭제</button>` : ''}
         <span style="flex:1"></span>

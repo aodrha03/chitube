@@ -181,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.7.3"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.8.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -1788,11 +1788,7 @@ def file_issue(job):
     meta = json.loads(job["meta"] or "{}")
     if meta.get("size") and os.path.getsize(p) != meta["size"]:  # 길이는 헤더 값이라 잘린 파일도 정상으로 나옴 → 크기로 확인
         return f"파일 크기 변경됨 ({os.path.getsize(p) / 1e6:.1f}MB / 완료 당시 {meta['size'] / 1e6:.1f}MB) - 손상 가능"
-    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", p],
-                       capture_output=True, text=True, timeout=120)
-    try:
-        got = float(r.stdout.strip())
-    except ValueError:
+    if (got := probe_duration(p)) <= 0:
         return "재생 불가 (손상)"
     want = meta.get("duration")
     if want and not job["live"] and abs(got - want) > max(3, want * 0.03):
@@ -1849,10 +1845,11 @@ def run_audit(s):
         removed = {r["video_id"] for r in q("SELECT video_id FROM removed")}
         known = {r["video_id"] for r in q("SELECT video_id FROM jobs")} | removed  # 지운 영상은 '놓친 영상' 아님 (몇 개 건너뛰었는지는 표시)
         for sub in q("SELECT * FROM subs WHERE enabled=1 ORDER BY name"):
-            if paused():
-                res["aborted"] = "유튜브 차단 신호로 유튜브 비교 중단"
-                break
-            r = {"name": sub["name"], "listed": 0, "missing": 0, "removed": 0, "error": None}
+            plat = platform_of(sub["url"])
+            if paused() and plat == "youtube":  # 유튜브 차단 중엔 유튜브만 건너뜀 (예전엔 여기서 멈춰 치지직 비교도 안 했음)
+                res["aborted"] = "유튜브 차단 신호로 유튜브 비교는 건너뜀 (치지직은 계속)"
+                continue
+            r = {"name": sub["name"], "platform": plat, "listed": 0, "missing": 0, "removed": 0, "error": None}
             for u in sub_urls(sub):
                 try:
                     entries, _, kind = list_entries(u, AUDIT_DEPTH)
@@ -1969,11 +1966,12 @@ def scheduler_step():
             check_updates()
         s = settings()
         last = q("SELECT COALESCE(MAX(started), 0) t FROM audits")[0]["t"]
-        if not paused() and (STATE.pop("audit_now", False) or audit_due(audit_hours(s), last)):
+        # 유튜브 차단 중에도 점검은 함 (유튜브 비교만 건너뜀) — 예전엔 차단 중이면 점검 자체를 안 해서 치지직도 점검되지 않았음
+        if STATE.pop("audit_now", False) or audit_due(audit_hours(s), last):
             run_audit(s)
         for sub in q("SELECT * FROM subs WHERE enabled=1 ORDER BY last_checked"):
-            if paused():
-                break
+            if paused() and platform_of(sub["url"]) == "youtube":  # 유튜브 차단 중엔 유튜브 구독만 쉼 (예전엔 치지직 구독 확인도 같이 멈췄음)
+                continue
             if time.time() >= next_check(sub, s):
                 check_sub(sub, s)
                 time.sleep(random.uniform(5, 15))  # 채널 사이 대기
@@ -2426,11 +2424,6 @@ def to_top(jid: int):  # 대기열 맨 앞으로 (다음에 받을 영상)
     q("UPDATE jobs SET pri=(SELECT COALESCE(MAX(pri),0)+1 FROM jobs) WHERE id=? AND status='queued'", (jid,))
 
 
-@app.post("/api/jobs/{jid}/retry")
-def retry(jid: int):  # 완료된 영상의 "다시 받기"도 여기로 옴 → 기존 파일을 지우지 않으면 압축본을 또 압축함
-    redownload(jid)
-
-
 @app.post("/api/jobs/{jid}/cancel")
 def cancel(jid: int):  # 라이브 녹화는 중지 후 저장, 다운로드/압축 중이면 중단, 대기 중이면 대기열에서 제외
     j = q("SELECT video_id, title, status FROM jobs WHERE id=?", (jid,))
@@ -2585,13 +2578,6 @@ def sub_pattern(sid: int):
         t = time.localtime(r["started"])
         grid[t.tm_wday][t.tm_hour] += 1
     return {"grid": grid, "n": len(rows)}
-
-
-@app.post("/api/subs/check-all")
-def check_all():
-    q("UPDATE subs SET last_checked=1 WHERE enabled=1 AND last_checked > 0")  # 스케줄러가 채널 사이 간격을 두고 차례로 확인
-    # (1 = 바로 확인할 차례. 0 은 '새 구독 첫 확인'이라 지운 영상도 받으므로 쓰지 않음)
-    WAKE.set()
 
 
 @app.post("/api/subs/{sid}/check")

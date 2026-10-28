@@ -971,7 +971,20 @@ main.chzzk_api = real_api
 # '지금 확인'은 지운 영상을 그대로 건너뜀 (새 구독 첫 확인만 지운 영상도 받음)
 main.q("INSERT INTO subs(url, name, last_checked) VALUES('https://www.youtube.com/@ck1', 'ck1', 5000)")
 ck1 = main.q("SELECT id FROM subs WHERE name='ck1'")[0]["id"]
-main.check_now(ck1); main.check_all()
+main.check_now(ck1)
 assert main.q("SELECT last_checked FROM subs WHERE id=?", (ck1,))[0]["last_checked"] == 1
 main.STATE.pop("audit_now", None); main.WAKE.clear()
+# 유튜브 차단 중에도 점검은 치지직 채널을 비교함 (유튜브만 건너뜀)
+main.q("UPDATE subs SET enabled=0")
+main.q("INSERT INTO subs(url, name, kinds, enabled) VALUES('https://chzzk.naver.com/" + "5" * 32 + "', 'cz_audit', 'videos', 1), ('https://www.youtube.com/@yt_audit', 'yt_audit', 'videos', 1)")
+real_le, real_sleep2 = main.list_entries, main.time.sleep
+main.list_entries = lambda u, limit=None: ([{"id": "czaudit01", "url": "https://chzzk.naver.com/video/1", "title": "다시보기"}], "c", "videos")
+main.time.sleep = lambda x: None
+main.STATE["paused_until"] = main.time.time() + 600
+main.run_audit(main.settings())
+main.STATE["paused_until"] = 0
+main.list_entries, main.time.sleep = real_le, real_sleep2
+res = json.loads(main.q("SELECT result FROM audits ORDER BY id DESC LIMIT 1")[0]["result"])
+assert [x["name"] for x in res["subs"]] == ["cz_audit"] and res["subs"][0]["platform"] == "chzzk" and "치지직은 계속" in res["aborted"]
+main.q("DELETE FROM subs WHERE name IN ('cz_audit','yt_audit')")
 print("queue page ok")
