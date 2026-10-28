@@ -181,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.9.3"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.9.4"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -892,6 +892,10 @@ def reserve_gpu(jid, hw, most):
         return True
 
 
+PP_NAME = {"Merger": "영상 · 소리 합치는 중", "Metadata": "제목 · 챕터 넣는 중", "FixupM3u8": "파일 고치는 중",
+           "FixupStretched": "파일 고치는 중", "FixupDuplicateMoov": "파일 고치는 중"}  # 다 받은 뒤 오래 걸리는 정리 (큰 파일은 몇 분 ~ 몇십 분)
+
+
 def run_job(job, s, dl=None):
     jid = job["id"]
     ACTIVE.add(jid)
@@ -909,6 +913,10 @@ def run_job(job, s, dl=None):
             LIVE[jid] = {"status": st, "speed": d.get("speed"), "eta": d.get("eta"), "bytes": d.get("downloaded_bytes"),
                          "total": total or None,  # 유튜브는 영상·소리를 따로 받아 지금 받는 파일 기준
                          "progress": d.get("downloaded_bytes", 0) / total * 100 if total else 0}
+
+    def pp_hook(d):  # 다 받은 뒤 정리는 진행률이 없음 → 무엇을 하는 중인지 표시 (예전엔 큰 파일이 몇십 분 '다운로드 중'에 아무 표시 없이 멈춰 보였음)
+        if d["status"] == "started" and not job["live"] and (what := PP_NAME.get(d.get("postprocessor"))):
+            LIVE[jid] = {"status": st, "progress": 100, "post": what}
 
     def fetch(stream_hw, fmt, cookies):
         """stream_hw = None: 원본을 다 받은 뒤 압축 / 'cpu'·'nvenc'·'vaapi': ffmpeg 가 서버에서 읽으면서 바로 압축
@@ -933,6 +941,7 @@ def run_job(job, s, dl=None):
                  "actions": [(MetadataParserPP.Actions.INTERPRET, "%(upload_date>%Y-%m-%d)s", "%(meta_date)s")]},
             ],
             "progress_hooks": [hook],
+            "postprocessor_hooks": [pp_hook],
         }
         if not cookies:
             o.pop("cookiefile", None)
@@ -1221,7 +1230,7 @@ def watch_size(jid, d, name, stop, live=True):
     → aria2c 가 기록하는 완료 조각 목록(.aria2)으로 계산"""
     pat = os.path.join(glob.escape(d), "**", glob.escape(name) + "*.part")
     status = "recording" if live else "downloading"
-    prev, st = None, {}  # prev: 이어받기면 처음부터 받은 양이 커서, 첫 측정은 속도 계산에서 뺌
+    st, hist = {}, collections.deque(maxlen=6)  # hist: 최근 (시각, 받은 양) — 속도는 약 15초 평균 (aria2c 는 조각이 끝날 때만 늘어 3초로 보면 0 ↔ 2MB/s 로 튐)
     while not stop:
         try:
             parts = glob.glob(pat, recursive=True)  # 같은 제목의 예전 녹화 조각이 남아 있을 수 있어 가장 최근 파일만
@@ -1233,13 +1242,13 @@ def watch_size(jid, d, name, stop, live=True):
             else:  # aria2c 가 아니면(HLS 등) yt-dlp 가 진행률을 알려줌
                 time.sleep(3)
                 continue
-            speed = max(got - prev, 0) / 3 if prev is not None else None
+            hist.append((time.time(), got))  # 이어받기면 처음 받은 양이 커서 첫 측정만으로는 속도를 안 셈
+            speed = max(got - hist[0][1], 0) / (hist[-1][0] - hist[0][0]) if len(hist) > 1 and hist[-1][0] > hist[0][0] else None
             if stop:  # 녹화가 끝나 압축이 시작됐으면 '녹화 중'으로 덮어쓰지 않음 (예전엔 완료까지 '녹화 중'으로 멈춰 보였음)
                 break
             LIVE[jid] = {"status": status, "bytes": got, "speed": speed, "total": total,
                          "eta": int((total - got) / speed) if total and speed else None,
                          "progress": got / total * 100 if total else 0}
-            prev = got
             if live:
                 stall_check(jid, got, st)
         except OSError:
@@ -1945,14 +1954,16 @@ def run_audit(s):
             time.sleep(random.uniform(5, 15))  # 채널 사이 대기
 
         # ponytail: 완료 파일 전체를 매번 ffprobe - 수만 개가 되면 최근 N일치만 검사하도록 바꾸면 됨
-        done = q("SELECT id, title, filepath, meta, live FROM jobs WHERE status='done'")
+        done = q("SELECT id, title, filepath, meta, live, url FROM jobs WHERE status='done'")
         res["files_checked"] = len(done)
+        res["files_by"] = collections.Counter(platform_of(j["url"]) for j in done)  # 화면에서 플랫폼별로 볼 때
         res["file_issues"] = [{"id": j["id"], "title": j["title"], "issue": i} for j in done if (i := file_issue(j))]
 
         # 생방송은 제외: 나중에 다시 받으면 그때 하고 있는 방송을 녹화하게 됨 (끊긴 녹화는 continue_live 가 바로 이어 받음)
         retry = q("UPDATE jobs SET status='queued', progress=0, error=NULL, retries=COALESCE(retries,0)+1 "
-                  "WHERE status='error' AND COALESCE(live,0)=0 AND COALESCE(retries,0) < ? RETURNING id", (MAX_RETRIES,))
+                  "WHERE status='error' AND COALESCE(live,0)=0 AND COALESCE(retries,0) < ? RETURNING id, url", (MAX_RETRIES,))
         res["retried"] = len(retry)
+        res["retried_by"] = collections.Counter(platform_of(j["url"]) for j in retry)
         res["gave_up"] = q("SELECT id, title, error FROM jobs WHERE status='error'")
     finally:
         STATE["auditing"] = False
@@ -2555,9 +2566,12 @@ def cancel(jid: int):  # 라이브 녹화는 중지 후 저장, 다운로드/압
             return {"saved": True}
     if jid in LIVE:
         CANCEL.add(jid)
-        for exe in (b"aria2c", b"ffmpeg"):  # aria2c·받으면서 압축하는 ffmpeg 는 yt-dlp 진행률 콜백이 없어 직접 종료
+        # aria2c·받으면서 압축하는 ffmpeg 는 yt-dlp 진행률 콜백이 없어 직접 종료. 바로 끝내는 신호(9)로: 15 는 '마무리 후 종료'라
+        # ffmpeg 는 압축기를 비우고 aria2c 는 연결을 정리하느라 몇 분씩 걸려, 한 번 더 눌러야(두 번째 15 = 즉시 종료) 취소됐음.
+        # 취소는 받던 조각을 지우니 마무리가 필요 없음 (녹화는 위에서 '중지 후 저장'으로 따로)
+        for exe in (b"aria2c", b"ffmpeg"):
             for pid, _ in procs(exe, j[0]["video_id"]) if j else ():
-                os.kill(pid, 15)
+                os.kill(pid, 9)
 
 
 def remove_files(path):
@@ -2848,12 +2862,12 @@ def status():
 
 
 @app.get("/api/audit")
-def audit():
+def audit(platform: str | None = None):
     """마지막 점검 결과. 화면이 상태 탭에서 2초마다 부름 → 최근 1개만, 고쳐진 것 빼기는 15초마다만 다시 계산
     (예전엔 최근 7개를 통째로 보내고 매번 문제 파일을 하나씩 확인해, 영상이 많으면 응답에 3초 넘게 걸려 상태 화면이 굼떴음)"""
     head = {"next": next_audit(audit_hours(settings())), "running": STATE.get("auditing", False)}
     last = q("SELECT id FROM audits ORDER BY id DESC LIMIT 1")
-    key = last[0]["id"] if last else None
+    key = (last[0]["id"] if last else None, platform)
     if (c := STATE.get("audit_cache")) and c[0] == key and time.time() - c[1] < 15:
         return head | {"history": c[2]}
     rows = q("SELECT * FROM audits ORDER BY id DESC LIMIT 1")
@@ -2862,12 +2876,21 @@ def audit():
     if rows:  # 마지막 점검 뒤에 고쳐진 것(다시 받음·완료로 바뀜·목록에서 삭제)은 빼고 보여줌 (예전엔 다음 점검까지 그대로 남았음)
         res = rows[0]["result"]
         ids = {i["id"] for k in ("file_issues", "gave_up", "gone") for i in res.get(k) or []}
-        now = {j["id"]: j for j in q(f"SELECT id, status, filepath FROM jobs WHERE id IN ({','.join(map(str, ids)) or 0})")}
+        now = {j["id"]: j for j in q(f"SELECT id, status, filepath, url FROM jobs WHERE id IN ({','.join(map(str, ids)) or 0})")}
         res["file_issues"] = [i for i in res.get("file_issues", []) if (j := now.get(i["id"])) and j["status"] == "done"
                               and not (i["issue"].startswith("파일 없음") and j["filepath"] and os.path.isfile(j["filepath"]))]
         res["gave_up"] = [g for g in res.get("gave_up", []) if (now.get(g["id"]) or {}).get("status") == "error"]
         gone_now = {r["id"] for r in q("SELECT id FROM jobs WHERE json_extract(meta, '$.source_gone') IS NOT NULL")}
         res["gone"] = [g for g in res.get("gone", []) if g["id"] in gone_now]
+        if platform in PLATFORMS:  # 유튜브 · 치지직 따로 보기 (같이 보면 어디 문제인지 찾기 어려움)
+            for k in ("file_issues", "gave_up", "gone"):
+                res[k] = [i for i in res[k] if platform_of((now.get(i["id"]) or {}).get("url")) == platform]
+            res["subs"] = [x for x in res["subs"] if x.get("platform") == platform]
+            res["missing_added"] = sum(x["missing"] for x in res["subs"])
+            res["files_checked"] = (res.get("files_by") or {}).get(platform, 0 if "files_by" in res else res.get("files_checked", 0))
+            res["retried"] = (res.get("retried_by") or {}).get(platform, 0 if "retried_by" in res else res.get("retried", 0))
+            if platform == "chzzk":
+                res.pop("aborted", None)  # 유튜브 차단으로 건너뛴 안내는 유튜브에서만
         for k in ("file_issues", "gave_up", "gone"):  # 화면엔 300개까지만 (개수는 따로) — 수천 개를 2초마다 보내고 그리면 화면이 굼뜸
             res[k + "_n"], res[k] = len(res.get(k) or []), (res.get(k) or [])[:300]
     STATE["audit_cache"] = (key, time.time(), rows)

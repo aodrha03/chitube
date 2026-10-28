@@ -1062,3 +1062,28 @@ assert main.q("SELECT cut FROM jobs WHERE video_id='chzzk-live-777'")[0]["cut"] 
 main.yt_dlp.YoutubeDL.extract_info, main.live_now, main.time.sleep, main.live_ended = real
 main.q("DELETE FROM jobs WHERE video_id LIKE 'chzzk-live-777%'")
 print("phantom part ok")
+
+# 점검 결과 유튜브 · 치지직 따로 보기
+ya = main.q("INSERT INTO jobs(video_id,url,title,opts,status,filepath) VALUES('aplat_y01','https://www.youtube.com/watch?v=aplat_y01','유','{}','error',NULL) RETURNING id")[0]["id"]
+ca = main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('aplat_c01','https://chzzk.naver.com/video/9','치','{}','error') RETURNING id")[0]["id"]
+main.q("INSERT INTO audits(started, finished, result) VALUES(?,?,?)", (main.time.time(), main.time.time(), json.dumps({
+    "subs": [{"name": "y", "platform": "youtube", "missing": 2}, {"name": "c", "platform": "chzzk", "missing": 1}], "missing_added": 3,
+    "gone": [], "file_issues": [], "files_checked": 5, "files_by": {"youtube": 3, "chzzk": 2}, "retried": 1, "retried_by": {"chzzk": 1},
+    "gave_up": [{"id": ya, "title": "유", "error": "x"}, {"id": ca, "title": "치", "error": "x"}], "aborted": "유튜브 차단"})))
+main.STATE.pop("audit_cache", None)
+y, c = main.audit("youtube")["history"][0]["result"], main.audit("chzzk")["history"][0]["result"]
+assert [g["id"] for g in y["gave_up"]] == [ya] and [g["id"] for g in c["gave_up"]] == [ca] and y["gave_up_n"] == 1
+assert (y["missing_added"], c["missing_added"], y["files_checked"], c["files_checked"], y["retried"], c["retried"]) == (2, 1, 3, 2, 0, 1)
+assert y.get("aborted") and not c.get("aborted") and len(main.audit()["history"][0]["result"]["gave_up"]) == 2
+main.q("DELETE FROM jobs WHERE id IN (?,?)", (ya, ca)); main.q("DELETE FROM audits WHERE id=(SELECT MAX(id) FROM audits)")
+print("audit platform ok")
+
+# 취소: 종료 신호(15)를 무시·늦게 처리하는 프로그램도 한 번에 끝냄 (예전엔 두 번 눌러야 했음)
+main.shutil.copy(main.sys.executable, "/tmp/ffmpeg")
+pr = main.subprocess.Popen(["/tmp/ffmpeg", "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)", "o [cancel0001].mp4"])
+cj = main.q("INSERT INTO jobs(video_id,url,title,opts,status) VALUES('cancel0001','https://www.youtube.com/watch?v=cancel0001','c','{}','downloading') RETURNING id")[0]["id"]
+main.LIVE[cj] = {"status": "downloading"}; main.time.sleep(0.5)
+main.cancel(cj)
+assert pr.wait(3) == -9 and cj in main.CANCEL
+main.CANCEL.discard(cj); main.LIVE.pop(cj, None); main.q("DELETE FROM jobs WHERE id=?", (cj,))
+print("cancel once ok")

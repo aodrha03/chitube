@@ -4,6 +4,14 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.9.4 — 2026-10-29
+### Added
+- **Download audit results per platform**: YouTube / Chzzk buttons above the results show the numbers (missed videos, files OK, retried, gave up) and lists (file problems, source gone, gave up, per channel) for each platform separately; your choice is remembered in this browser (they used to be mixed, making it hard to see where a problem was).
+### Fixed
+- **Cancelling a download or compression needed two or more clicks**: cancel sent ffmpeg / aria2c a "finish up and exit" signal, so an ffmpeg compressing while downloading flushed its encoder and aria2c (Chzzk replays) closed its connections, taking minutes (only the second signal stopped them at once) → they are now stopped immediately (the partial file is deleted anyway; recordings still use "stop and save").
+- **"Downloading" with no progress after the download finished**: big videos (tens of GB) spend minutes to tens of minutes merging video/audio and adding title/chapters (mp4 finalizing) with no progress shown → the card now says e.g. "Downloaded · adding title and chapters".
+- **Chzzk replay download speed jumped between 0 and 2 MB/s**: it was computed every 3 s from pieces that only grow when a piece completes → now an average over about 15 s.
+
 ## v1.9.3 — 2026-10-29
 ### Fixed
 - **A "Not live (the broadcast ended)" error card appeared when a broadcast ended**: Chzzk keeps reporting "live" for a few seconds after the end, so ChiTube took it as a cut and started a new part (-p2…) that failed at once → such a part with nothing recorded is now removed instead of shown as an error, and the previous part is treated as a normal end (the wrong "cut" mark is cleared). Compression of the finished recording continues as usual.

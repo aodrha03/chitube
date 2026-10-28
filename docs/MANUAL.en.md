@@ -327,7 +327,7 @@ Add the **save folder** (default `YouTube`) as the library folder. If you add th
 
 ### Download audit (default: twice a day, 4 AM · 4 PM)
 
-Settings → Common → Download audit: Off / once a day / twice a day. **Audit now** on the Status tab runs it immediately.
+Settings → Common → Download audit: Off / once a day / twice a day. **Audit now** on the Status tab runs it immediately. Use the **YouTube / Chzzk** buttons above the results to view each platform separately (numbers and lists; your choice is remembered).
 
 | Tab | What it checks |
 |---|---|
