@@ -535,10 +535,10 @@ assert main.bad_setting("auto_merge", "2") and not main.bad_setting("sponsorbloc
 calls, real_ln, real_mp = [], main.live_now, main.merge_parts
 main.live_now, main.merge_parts = (lambda j: False), (lambda jid: calls.append(jid))
 lj = {"id": 99901, "video_id": "chzzk-live-5-p2", "title": "끝난 방송"}
-main.continue_live(lj)
-main.continue_live(lj | {"id": 99902, "video_id": "chzzk-live-5"})
+main.live_ended(lj)
+main.live_ended(lj | {"id": 99902, "video_id": "chzzk-live-5"})
 main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('auto_merge', '0')")
-main.continue_live(lj | {"id": 99903})
+main.live_ended(lj | {"id": 99903})
 assert calls == [99901]
 main.live_now, main.merge_parts = real_ln, real_mp
 main.q("DELETE FROM settings WHERE key='auto_merge'")
@@ -1044,3 +1044,21 @@ assert "[diag0001]" in ptxt and "SECRET1" not in ptxt and "상태 " in ptxt
 assert "테스트 멈춤" in z.read(next(n for n in names if n.startswith("stall-"))).decode() and "MainThread" in z.read("threads.txt").decode()
 pr.kill(); pr.wait()
 print("diag ok")
+
+# 방송이 끝났는데 API 가 늦게 알려 줘 만든 이어 녹화 조각: '방송 중이 아님' → 오류 카드 대신 목록에서 빼고 앞 조각의 끊김 표시 지움
+cu = "https://chzzk.naver.com/live/" + "d" * 32
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live,cut) VALUES('chzzk-live-777',?,'끝','{}','done',1,123)", (cu,))
+main.q("INSERT INTO jobs(video_id,url,title,opts,status,live) VALUES('chzzk-live-777-p2',?,'끝','{}','downloading',1)", (cu,))
+pj = main.q("SELECT * FROM jobs WHERE video_id='chzzk-live-777-p2'")[0]
+real = (main.yt_dlp.YoutubeDL.extract_info, main.live_now, main.time.sleep, main.live_ended)
+main.yt_dlp.YoutubeDL.extract_info = lambda self, *a, **k: (_ for _ in ()).throw(main.yt_dlp.utils.DownloadError("ERROR: [chzzk:live] ddd: The channel is not currently live"))
+ended = []
+main.live_now, main.time.sleep, main.live_ended = (lambda job: False), (lambda sec: None), (lambda job: ended.append(job["video_id"]))
+main.run_job(pj, main.job_settings(pj))
+main.continue_live(pj)  # 빠진 작업이면 아무것도 안 함
+main.time.sleep = real[2]; main.time.sleep(0.5)
+assert not main.q("SELECT 1 FROM jobs WHERE id=?", (pj["id"],)) and ended == ["chzzk-live-777"]
+assert main.q("SELECT cut FROM jobs WHERE video_id='chzzk-live-777'")[0]["cut"] is None
+main.yt_dlp.YoutubeDL.extract_info, main.live_now, main.time.sleep, main.live_ended = real
+main.q("DELETE FROM jobs WHERE video_id LIKE 'chzzk-live-777%'")
+print("phantom part ok")

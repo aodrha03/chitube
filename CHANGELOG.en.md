@@ -4,6 +4,13 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.9.3 — 2026-10-29
+### Fixed
+- **A "Not live (the broadcast ended)" error card appeared when a broadcast ended**: Chzzk keeps reporting "live" for a few seconds after the end, so ChiTube took it as a cut and started a new part (-p2…) that failed at once → such a part with nothing recorded is now removed instead of shown as an error, and the previous part is treated as a normal end (the wrong "cut" mark is cleared). Compression of the finished recording continues as usual.
+- **Parts were not auto-merged in that case**: the phantom part took over the end-of-broadcast handling → the previous part now decides and merges.
+### Cleanup
+- Duplicate code merged (no behavior change): reading one job field (7 places), checking a video codec (2), capturing thread stacks for diagnostics and stall snapshots (2) now share helpers; finishing a recording probes the codec once instead of twice; a redundant DB update at the end of cancel was removed.
+
 ## v1.9.2 — 2026-10-28
 ### Improved
 - **Diagnostics precise enough to find the cause**: the "Download diagnostics" zip now also contains —

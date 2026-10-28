@@ -181,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.9.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.9.3"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -1172,6 +1172,16 @@ def run_job(job, s, dl=None):
             q("UPDATE jobs SET status='queued', progress=0, error=NULL, retries=COALESCE(retries,0)+1 WHERE id=?", (jid,))
             log(f"방송 시작 직후라 아직 준비 안 됨 → 10초 뒤 다시 녹화: {job['title']}")
             time.sleep(10)
+        elif job["live"] and NOT_LIVE_RE.search(msg) and (job["retries"] or 0) < 6 and not keep_partial(job["video_id"], s, dry=True):
+            # 위에서 방송이 꺼진 걸 확인함: 방송이 끝났는데 치지직 API 가 몇 초 늦게 '방송 중'으로 알려 줘 만든 이어 녹화 조각 · 끝난 뒤 시작한 녹화
+            # → 녹화한 게 없으니 오류 카드 대신 목록에서 빼고, 앞 조각을 방송 끝으로 (끊김 표시 지우고 자동 합치기)
+            # (예전엔 압축할 녹화 옆에 '방송 중이 아님' 오류 카드가 남고, 조각 자동 합치기도 안 됐음)
+            q("DELETE FROM jobs WHERE id=?", (jid,))
+            base, n = part_of(job["video_id"])
+            if n > 1 and (prev := q("SELECT * FROM jobs WHERE video_id=?", (base if n == 2 else f"{base}-p{n - 1}",))):
+                q("UPDATE jobs SET cut=NULL WHERE id=?", (prev[0]["id"],))
+                threading.Thread(target=live_ended, args=(prev[0],), daemon=True).start()
+            log(f"방송이 이미 끝나 녹화할 게 없음 → 목록에서 뺌: {job['title']}")
         elif not job["live"] and TRANSIENT_RE.search(msg) and (job["retries"] or 0) < len(RETRY_DELAY):
             wait = RETRY_DELAY[job["retries"] or 0]
             cleanup_partial(job["video_id"], s) if "받은 파일 검사 실패" in msg else None
@@ -1461,7 +1471,7 @@ def compress_turn(jid, p, dl=None):
         # 부하 보호는 최대 30분만 (CPU 로 녹화하면서 압축하는 생방송이 계속 돌면 늘 95% 이상이라 영원히 미뤄졌음)
         if busy := overloaded() and time.time() - t0 < 1800:  # 부하가 높으면 새 압축은 잠시 대기 (이미 압축 중인 건 그대로)
             if not told:
-                log(f"CPU · 그래픽카드 부하가 높아 압축을 잠시 미룸 (녹화 우선): {(q('SELECT title FROM jobs WHERE id=?', (jid,)) or [{}])[0].get('title')}")
+                log(f"CPU · 그래픽카드 부하가 높아 압축을 잠시 미룸 (녹화 우선): {job_col(jid, 'title')}")
                 told = True
         with COMP_LOCK:
             if not busy and sum(COMPRESSING.get(j) == p for j in COMP_RUN) < int(settings()[("chzzk_" if p == "chzzk" else "") + "compress_concurrency"]):
@@ -1516,13 +1526,24 @@ def live_now(job):
             time.sleep(5)
 
 
+def live_ended(job):
+    """방송 끝 + 여러 조각 → 한 파일로 (이 조각을 압축 중이면 끝난 뒤에)"""
+    if part_of(job["video_id"])[1] > 1 and settings()["auto_merge"] == "1":
+        if job_col(job["id"], "status") == "downloading":
+            MERGE_AFTER.add(job["id"])
+        else:
+            auto_merge(job)
+
+
 def continue_live(job):
     """녹화가 끝났는데(끊김·오류) 방송이 아직 이어지면 바로 이어서 녹화 → 새 파일 '…[ID-p2]'. 다음 녹화 스레드가 5초 안에 시작.
     사용자가 중지·취소했거나 방송이 끝났으면 안 함. ponytail: 같은 방송 최대 50번까지 (계속 실패하는 방송에서 무한 반복 방지)"""
-    if job["id"] in STOPPED or (q("SELECT status FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("status") == "cancelled":
+    if (st := job_col(job["id"], "status")) is None:  # 목록에서 빠진 작업 (방송이 이미 끝나 녹화할 게 없던 조각 등)
+        return
+    if job["id"] in STOPPED or st == "cancelled":
         STOPPED.discard(job["id"])
         return
-    if (q("SELECT error FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("error") == ADULT_MSG:
+    if job_col(job["id"], "error") == ADULT_MSG:
         return  # 성인 인증 실패는 이어서 녹화해도 또 실패
     if job["id"] in RETRY_LIVE:  # 같은 작업을 다시 녹화하기로 함 (방송 시작 직후 재시도) → 새 파일로 이어 가지 않음
         RETRY_LIVE.discard(job["id"])
@@ -1531,11 +1552,7 @@ def continue_live(job):
     if n >= 50:
         return
     if not live_now(job):
-        if n > 1 and settings()["auto_merge"] == "1":  # 방송 끝 + 여러 조각 → 한 파일로 (이 조각을 압축 중이면 끝난 뒤에)
-            if (q("SELECT status FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("status") == "downloading":
-                MERGE_AFTER.add(job["id"])
-            else:
-                auto_merge(job)
+        live_ended(job)
         return
     q("UPDATE jobs SET cut=? WHERE id=?", (time.time(), job["id"]))  # 방송 중에 녹화가 끝남 = 끊김 → 영상 정보에 표시
     if add_entries([{"id": f"{base}-p{n + 1}", "url": job["url"], "title": job["title"], "live_status": "is_live",
@@ -1559,10 +1576,21 @@ def check_file(path, want=None):
     return None, False
 
 
+def job_col(jid, col):
+    """작업 하나의 한 칸 값 (작업이 없으면 None). col 은 코드에 적힌 칸 이름만"""
+    return (q(f"SELECT {col} FROM jobs WHERE id=?", (jid,)) or [{}])[0].get(col)
+
+
+FF_CODEC = {"h264": "h264", "h265": "hevc", "av1": "av1"}  # 설정 코덱 → ffprobe 코덱 이름
+
+
+def video_codec(path):
+    return next((c for t, c, *_ in probe_streams(path)[0] if t == "video"), None)
+
+
 def same_codec(path, codec):
     """파일의 영상 코덱이 설정 코덱(h264 · h265 · av1)과 같은지"""
-    vc = next((c for t, c, *_ in probe_streams(path)[0] if t == "video"), None)
-    return vc == {"h264": "h264", "h265": "hevc", "av1": "av1"}.get(codec)
+    return video_codec(path) == FF_CODEC.get(codec)
 
 
 def finish_kept(job, path, s, dl=None):
@@ -1572,15 +1600,15 @@ def finish_kept(job, path, s, dl=None):
         return path
     try:
         dur = probe_duration(path)
-        vc = next((c for t, c, *_ in probe_streams(path)[0] if t == "video"), None)
-        enc = s["codec"] in ("h264", "h265", "av1") and not same_codec(path, s["codec"])
+        vc = video_codec(path)
+        enc = s["codec"] in FF_CODEC and vc != FF_CODEC[s["codec"]]
         tags = {"title": job["title"]}
         if enc:
             compress_turn(job["id"], platform_of(job["url"]), dl)
             out, hw = compress(path, dur, s, job["id"], tags=tags, live=True)
         if not enc or hw is None:  # 압축 안 함 · 압축해도 안 작아짐 → 화질 그대로 mp4 로만
             out, _ = compress(path, dur, s | {"codec": "copy", "src_codec": "h265" if vc == "hevc" else vc}, job["id"], force=True, tags=tags)
-        meta = json.loads((q("SELECT meta FROM jobs WHERE id=?", (job["id"],)) or [{}])[0].get("meta") or "{}")
+        meta = json.loads(job_col(job["id"], "meta") or "{}")
         q("UPDATE jobs SET meta=? WHERE id=?", (json.dumps(meta | {"size": os.path.getsize(out), "duration": dur}, ensure_ascii=False), job["id"]))
         frame_thumb(out, dur)
         return out
@@ -1969,14 +1997,18 @@ def cpu_ticks(vid):
     return n
 
 
+def thread_stacks(depth=None):
+    """스레드마다 지금 실행 중인 코드 줄 (depth = 안쪽 몇 줄만)"""
+    names = {t.ident: t.name for t in threading.enumerate()}
+    return "\n".join(f"--- {names.get(i, i)}\n" + "".join(traceback.format_stack(f)[-depth if depth else 0:])
+                     for i, f in sys._current_frames().items())
+
+
 def snapshot(why):
     """멈춤으로 정리하기 직전의 프로세스 · 스레드 상태를 stall-날짜.log 에 (진단 파일에 들어감). 지나간 멈춤도 원인을 볼 수 있게"""
-    names = {t.ident: t.name for t in threading.enumerate()}
-    stacks = "".join(f"--- {names.get(i, i)}\n" + "".join(traceback.format_stack(f)[-4:])  # 스레드마다 마지막 4줄만
-                     for i, f in sys._current_frames().items())
     try:
         with open(os.path.join(LOG_DIR, time.strftime("stall-%Y-%m-%d.log")), "a", encoding="utf-8") as f:
-            f.write(f"===== {time.strftime('%m-%d %H:%M:%S')} {why}\n[프로세스]\n{diag_procs()}\n[스레드]\n{stacks}\n")
+            f.write(f"===== {time.strftime('%m-%d %H:%M:%S')} {why}\n[프로세스]\n{diag_procs()}\n[스레드]\n{thread_stacks(4)}\n")
     except OSError:
         pass
 
@@ -2232,7 +2264,7 @@ def bulk(body: Bulk):
     """여러 영상 한 번에: 취소(녹화는 저장) / 다시 받기(오류·취소된 것만 — 완료된 건 파일을 지우므로 제외) / 목록에서 삭제"""
     done = 0
     for jid in reversed(body.ids) if body.action == "top" else body.ids:  # 맨 앞으로: 뒤에서부터 올려 고른 순서 유지
-        st = (q("SELECT status FROM jobs WHERE id=?", (jid,)) or [{}])[0].get("status")
+        st = job_col(jid, "status")
         if body.action == "top" and st == "queued":
             to_top(jid)
         elif body.action == "cancel" and st in ("queued", "downloading"):
@@ -2373,7 +2405,7 @@ def recompress_one(job, quality):
         if hw is None:
             log(f"압축해도 작아지지 않아 그대로 둠: {job['title']}")
             return
-        meta = json.loads((q("SELECT meta FROM jobs WHERE id=?", (jid,)) or [{}])[0].get("meta") or "{}")
+        meta = json.loads(job_col(jid, "meta") or "{}")
         meta |= {"size": os.path.getsize(out), "orig_size": meta.get("orig_size") or size0, "quality": quality,
                  "compressed": {"codec": s["codec"], "crf": s["crf"], "preset": s["preset"], "encoder": HW_NAME[hw]}}
         q("UPDATE jobs SET filepath=?, meta=? WHERE id=?", (out, json.dumps(meta, ensure_ascii=False), jid))
@@ -2526,7 +2558,6 @@ def cancel(jid: int):  # 라이브 녹화는 중지 후 저장, 다운로드/압
         for exe in (b"aria2c", b"ffmpeg"):  # aria2c·받으면서 압축하는 ffmpeg 는 yt-dlp 진행률 콜백이 없어 직접 종료
             for pid, _ in procs(exe, j[0]["video_id"]) if j else ():
                 os.kill(pid, 15)
-    q("UPDATE jobs SET status='cancelled', error=NULL WHERE id=? AND status='queued'", (jid,))
 
 
 def remove_files(path):
@@ -3132,9 +3163,7 @@ def diag():
         for f in sorted(glob.glob(os.path.join(LOG_DIR, "stall-*.log"))):  # 멈춤으로 정리한 순간들의 기록
             z.write(f, os.path.basename(f))
         # 스레드마다 지금 실행 중인 코드 줄 → 멈춘 작업이 어디서(압축 차례 · ffmpeg 기다림 · DB 등) 기다리는지 바로 보임
-        names = {t.ident: t.name for t in threading.enumerate()}
-        z.writestr("threads.txt", "\n".join(f"--- {names.get(i, i)}\n" + "".join(traceback.format_stack(f))
-                                            for i, f in sys._current_frames().items()))
+        z.writestr("threads.txt", thread_stacks())
         now = time.time()
         z.writestr("state.json", json.dumps({  # 프로그램 안 상태 (작업 id 기준)
             "live": LIVE, "active": ACTIVE, "cancel": CANCEL, "stopped": STOPPED, "killed": KILLED, "recomp": RECOMP, "merging": MERGING,
