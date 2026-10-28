@@ -4,6 +4,15 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.9.0 — 2026-10-28
+### Added
+- **Defaults tuned to the server**: at startup ChiTube looks at CPU cores, memory and the graphics card and adjusts the defaults — with a graphics card, live recordings are compressed on the GPU while recording; CPU-only servers get a concurrent-compression count based on core count, weak CPUs a slightly faster preset, small NAS boxes fewer concurrent Chzzk downloads/recordings. Values you saved in Settings always win (the log shows "서버 사양 → 기본 설정").
+- **CPU model and per-core usage**: the CPU row on the status page shows the CPU model; expand "Per-core usage" for a bar per core (collapsed by default).
+### Fixed
+- **Stopping a recording needed two clicks**: a recording compressed while recording could ignore the stop signal and hang → if it hasn't ended within 10 s it is force-stopped and everything recorded so far is saved; clicking again stops it immediately.
+- **Cancelling a recording again deleted it** (real case: the stop was slow, a second click was treated as "cancel download and delete", leaving 0 files): cancelling a recording now always means stop and save, and cancelling while the finished recording is being remuxed to mp4 keeps the recording. The card shows "Saving recording" meanwhile.
+- **Cancelling compression could hang**: cancellation was only noticed when ffmpeg printed output → now checked every 0.5 s regardless.
+
 ## v1.8.0 — 2026-10-28
 ### Added
 - **The download audit reliably covers Chzzk**: during a YouTube block the audit was skipped or stopped midway, so Chzzk channels weren't compared either → only YouTube is skipped; Chzzk is always audited. "Per YouTuber" is now "Per channel" with a YouTube · Chzzk tag.

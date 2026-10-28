@@ -186,6 +186,7 @@ Finished live recordings can't be recorded again, so Re-download is disabled for
 - **Updates wait for recordings**: pressing the update button on the Status tab while recording lets you choose "update automatically when all recordings end" or "now". Compression of a recording that was cut by a restart continues after the restart. (Restarting/stopping the container yourself still cuts recordings — do it when nothing is recording.)
 - **Recording quality check**: after a recording ends, ChiTube scans it in the background (low priority) for **frozen video and silence** longer than 10 s and lists them under "Quality check" in the video info window. It catches problems the interruption log can't (the stream itself froze, audio dropped). Waiting screens or AFK breaks can show up too.
 - **GPU auto-tuning**: at startup ChiTube compresses a 1080p60 sample on your GPU, measures the speed, and sets the default for "Live streams compressed on the GPU at once" (shown under Status → Hardware acceleration). A value you saved yourself always wins; if it's higher than the measurement, the Status page tells you.
+- **Defaults tuned to the server**: at startup ChiTube looks at CPU cores, memory and the graphics card — with a GPU, live recordings are compressed on the GPU while recording; CPU-only gets 1 concurrent compression per 8 cores (max 4), 4 cores or fewer use the "faster" preset, under 4 GB RAM or 2 cores or fewer get 1 concurrent Chzzk download and 3 recordings. Values you saved stay as they are; the applied values are logged ("서버 사양 → 기본 설정").
 - **Load protection**: if the CPU or the GPU encoder has been at 95%+ for 3 minutes while recording, new compressions wait so recordings get the resources.
 - **Watchdog**: every minute ChiTube checks every running job; if there's no progress at all (recording 3 min · download 20 min · compression 30 min), it cleans the job up — recordings are saved and continued, downloads are retried a bit later. Jobs left "downloading" without a worker are put back in the queue.
 - **Right after a stream starts**: Chzzk sometimes reports a just-started stream as "ended" for a moment; the recording is retried after 10 s (up to 1 minute).
@@ -317,7 +318,7 @@ Add the **save folder** (default `YouTube`) as the library folder. If you add th
 
 - **⚠ Settings to check** at the top: risky setting combinations (too many GPU live compressions for your card, too many CPU compressions for your cores, YouTube concurrency ≥ 2, minimum free space 0, a very long stall limit) and low disk space (less than ~48 h of original recordings).
 - Active · queued · done · errors · YouTube downloads in the last 24 h
-- System: CPU · memory · GPU · disk, YouTube block status, hardware acceleration (with the GPU measurement), login status, versions
+- System: CPU (model name; expand **Per-core usage** for each core) · memory · GPU · disk, YouTube block status, hardware acceleration (with the GPU measurement), login status, versions
 - **Usage by channel**: the 10 channels using the most space (click to expand)
 - Subscription schedule (next check per platform, "Check now")
 - Recent activity · recent errors (common errors in plain words, the original message in the video info)

@@ -1,4 +1,4 @@
-import collections, copy, glob, http.cookiejar, json, os, random, re, shutil, sqlite3, subprocess, tempfile, threading, time, urllib.request
+import collections, copy, functools, glob, http.cookiejar, json, os, random, re, shutil, sqlite3, subprocess, tempfile, threading, time, urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -181,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.8.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.9.0"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -605,6 +605,29 @@ def detect_hw():
         log(f"{HW_NAME[hw]} 사용 안 됨: {why}")
 
 
+def tune_defaults():
+    """이 서버 사양(CPU 코어 · 메모리 · 그래픽카드)에 맞춰 기본값 조정 → 설치하고 설정을 안 만져도 알맞게 돎.
+    기본값(DEFAULTS)만 바꿔서, 설정 화면에서 직접 저장한 값이 있으면 그 값이 우선 (gpu_bench 와 같은 방식)"""
+    cores, gpu = os.cpu_count() or 1, bool(HW)
+    try:
+        with open("/proc/meminfo") as f:
+            mem = int(f.readline().split()[1]) / 2**20  # MemTotal (GB)
+    except (OSError, ValueError, IndexError):
+        mem = 8
+    # 다 받은 뒤 압축 개수: 그래픽카드는 하나가 압축기를 꽉 채워 늘려도 안 빨라짐 → 1. CPU 만이면 코어 8개당 1개 (x265 하나가 코어 4~8개를 씀)
+    n = 1 if gpu else max(1, min(4, cores // 8))
+    DEFAULTS.update(compress_concurrency=str(n), chzzk_compress_concurrency=str(n))
+    if gpu:  # 녹화하면서 그래픽카드로 압축 (자리 없으면 녹화 후 압축) → 녹화 후 압축이 쌓이지 않음
+        DEFAULTS["live_compress"] = "gpu"
+    elif cores <= 4:  # 약한 CPU: 압축이 받는 속도를 못 따라가 쌓이지 않게 조금 빠른 설정
+        DEFAULTS["preset"] = "faster"
+    if mem < 4 or cores <= 2:  # 작은 NAS: 치지직 동시 받기 · 녹화 줄임 (메모리 · CPU 부족으로 녹화가 끊기지 않게)
+        DEFAULTS.update(chzzk_concurrency="1", chzzk_live_concurrency="3")
+    log(f"서버 사양: {cpu_name() or 'CPU'} {cores}코어 · 메모리 {mem:.0f}GB · {', '.join(HW_NAME[h] for h in HW) or '그래픽카드 없음'}"
+        f" → 기본 설정: 동시 압축 {n}개 · 녹화하면서 압축 {'그래픽카드' if gpu else '끔'} · 압축 속도 {DEFAULTS['preset']}"
+        f"{' · 치지직 동시 받기 1개' if mem < 4 or cores <= 2 else ''} (직접 저장한 설정이 우선)")
+
+
 def gpu_bench():
     """그래픽카드로 1080p60 영상을 실제로 압축해 처리 속도(fps)를 재고 → 동시에 녹화하면서 압축할 생방송 수를 그 카드에 맞게 (70% 여유).
     생방송 녹화처럼 CPU 가 풀고 그래픽카드가 압축. 직접 정한 값(설정 저장)이 있으면 그 값이 우선 — 측정값은 기본값만 바꿈"""
@@ -796,9 +819,9 @@ def run_ffmpeg(cmd, duration, jid, enc=None):
     # 오류 출력은 파일로: 파이프로 받으면 깨진 녹화본처럼 오류가 많을 때 파이프가 꽉 차 ffmpeg 와 서로 기다리며 영원히 멈췄음
     with tempfile.TemporaryFile() as ef:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=ef, text=True)
+        # 취소는 따로 감시 (예전엔 출력 줄이 올 때만 봐서, ffmpeg 가 멈춰 출력이 없으면 취소가 안 먹고 그대로 멈춰 있었음)
+        threading.Thread(target=kill_on_cancel, args=(p, jid), daemon=True).start()
         for line in p.stdout:
-            if jid in CANCEL:
-                p.kill()
             if line.startswith("out_time_us=") and duration:
                 v = line.split("=", 1)[1].strip()
                 if v.isdigit():
@@ -807,6 +830,13 @@ def run_ffmpeg(cmd, duration, jid, enc=None):
             return None
         ef.seek(0)
         return ef.read().decode(errors="replace")[-3000:]
+
+
+def kill_on_cancel(p, jid):
+    while p.poll() is None:
+        if jid in CANCEL:
+            p.kill()
+        time.sleep(0.5)
 
 
 def compress(src, duration, s, jid, force=False, tags=None, live=False):
@@ -1102,6 +1132,9 @@ def run_job(job, s, dl=None):
             drop_recordings(job["live_open"])  # 다시보기로 빈 곳을 메움 → 끊긴 녹화본은 지움 (설정)
     except Exception as e:
         msg = str(e)
+        if job["live"] and jid in CANCEL and keep_partial(job["video_id"], s, dry=True):
+            CANCEL.discard(jid)  # 녹화 중 취소 → 지우지 않고 중지와 같게 저장 (아래 '끊긴 녹화 보존')
+            STOPPED.add(jid)
         if jid in KILLED:  # 감시자가 멈춰서 정리함 → 일시적 오류로 (조금 뒤 다시)
             KILLED.discard(jid)
             msg = "진행이 멈춰서 정리함: " + msg
@@ -1114,8 +1147,8 @@ def run_job(job, s, dl=None):
             q("UPDATE jobs SET status='done', progress=100, filepath=?, error=?, finished=? WHERE id=?",
               (old, None if jid in CANCEL else f"다시 받기 실패 → 기존 파일 그대로 보존: {msg}"[:500], time.time(), jid))
             log(f"다시 받기 {'취소' if jid in CANCEL else '실패'} → 기존 파일 그대로 보존: {job['title']}")
-        elif jid in CANCEL and jid in COMPRESSING and orig and os.path.isfile(orig):
-            # 다 받고 압축하던 중 취소 → 압축만 멈추고 받은 원본으로 완료 (받기는 끝났으니 버리지 않음)
+        elif jid in CANCEL and info and orig and os.path.isfile(orig):
+            # 다 받고 압축하던 중 취소 (녹화하면서 압축한 녹화의 mp4 정리 중 포함 — 예전엔 이때 취소하면 녹화본을 지웠음) → 압축만 멈추고 받은 원본으로 완료 (받기는 끝났으니 버리지 않음)
             for f in keep_files(job["filepath"]):
                 os.remove(f)
             q("UPDATE jobs SET status='done', progress=100, filepath=?, title=?, meta=?, error=NULL, finished=? WHERE id=?",
@@ -1218,7 +1251,7 @@ def probe_duration(path):
 def stall_check(jid, size, st):
     """생방송 녹화가 멈췄는지(파일이 설정 stall_sec 동안 안 커짐) 보고, 멈췄으면 ffmpeg 를 끝내 지금까지 녹화분을 저장하고
     새 파일로 이어서 녹화되게 (continue_live). 예: 녹화 중인 파일을 복사 · 이동하면(OS · Docker 폴더 연결 방식에 따라) ffmpeg 가 멈춤.
-    먼저 'q'(정상 종료), 그래도 30초 안에 안 끝나면(쓰기에서 멈춰 'q' 를 못 읽음) 강제 종료"""
+    먼저 'q'(정상 종료), 그래도 10초 안에 안 끝나면 강제 종료 (stop_recording)"""
     now = time.time()
     if size > st.get("size", -1) or "t" not in st:
         st.update(size=size, t=now, acted=0)
@@ -1227,19 +1260,14 @@ def stall_check(jid, size, st):
     if idle < 20:  # 설정 최솟값 — 그 전엔 설정을 읽지 않음 (3초마다 불림)
         return
     limit = int(settings()["stall_sec"])
-    if idle < limit or acted >= 2 or (acted == 1 and idle < limit + 30):
+    if idle < limit or acted:
         return
     j = q("SELECT video_id, title FROM jobs WHERE id=?", (jid,))
     if not j:
         return
-    if not acted:
-        log(f"녹화가 {limit}초째 멈춤 → 지금까지 녹화분 저장하고 새 파일로 이어서 녹화: {j[0]['title']}")
-        stop_recording(j[0]["video_id"])
-    else:
-        for pid, _ in procs(b"ffmpeg", j[0]["video_id"]):
-            os.kill(pid, 9)
-        log(f"녹화가 멈춘 채 응답이 없어 강제로 끝냄 → 새 파일로 이어서 녹화: {j[0]['title']}")
-    st["acted"] = acted + 1
+    log(f"녹화가 {limit}초째 멈춤 → 지금까지 녹화분 저장하고 새 파일로 이어서 녹화: {j[0]['title']}")
+    stop_recording(j[0]["video_id"])
+    st["acted"] = 1
 
 
 def watch_stream(jid, prog, duration, stop, live=False, enc=None):
@@ -1311,17 +1339,35 @@ def aria2_seek(path, duration, sec=12):
     return None
 
 
-def stop_recording(vid):
-    """녹화 중인 ffmpeg 에 'q' 를 보내 정상 종료 → yt-dlp 가 녹화분을 저장·후처리함"""
+def stop_recording(vid, now=False):
+    """녹화 중인 ffmpeg 에 'q' 를 보내 정상 종료 → yt-dlp 가 녹화분을 저장·후처리함. 10초 안에 안 끝나면 강제 종료
+    (실제 사례: 녹화하면서 압축하는 ffmpeg 가 'q' 를 받고 쓰기만 멈춘 채 안 끝남 → 녹화 중으로 남아 한 번 더 눌러야 했음).
+    녹화 파일은 MPEG-TS 라 강제로 끝내도 그때까지 녹화분은 그대로 → 끊긴 녹화처럼 보존. now = 바로 강제 종료"""
     for pid, cmd in procs(b"ffmpeg", vid):
         if b"pipe:1" not in cmd:  # -progress pipe:1 은 녹화 끝난 뒤 압축하는 ffmpeg (녹화하면서 압축은 -progress 파일)
             try:
+                if now:
+                    os.kill(pid, 9)
+                    return True
                 with open(f"/proc/{pid}/fd/0", "wb") as f:
                     f.write(b"q")
+                t = threading.Timer(10, kill_same, (pid, cmd))
+                t.daemon = True
+                t.start()
                 return True
             except OSError:
                 pass
     return False
+
+
+def kill_same(pid, cmd):
+    """pid 가 아직 같은 프로세스면 강제 종료 (그사이 끝나고 다른 프로세스가 같은 번호를 받았으면 그대로)"""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            if f.read().split(b"\0") == cmd:
+                os.kill(pid, 9)
+    except OSError:
+        pass
 
 
 def procs(exe, vid):
@@ -2050,6 +2096,7 @@ async def lifespan(app):
     sweep_temp()  # 강제 종료/취소로 남은 압축 임시파일 정리
     VERSIONS.update(versions())
     detect_hw()
+    tune_defaults()
     threading.Thread(target=gpu_bench, daemon=True).start()  # 시작을 늦추지 않게 뒤에서
     for i in range(MAX_PARALLEL * 2):  # 스레드는 공용, 플랫폼별 개수는 claim 에서 제한
         start(f"다운로드 {i + 1}", worker, i)
@@ -2186,7 +2233,7 @@ def live_state(row):
     '녹화 중' 상태가 그대로 보여, 오류 항목이 녹화 중으로 보이고 취소 · 목록에서 삭제가 안 됐음"""
     if row["id"] in RECOMP:
         return LIVE.get(row["id"], {}) | {"recomp": True}
-    return LIVE.get(row["id"], {}) if row["status"] == "downloading" else {}
+    return LIVE.get(row["id"], {}) | ({"stopping": True} if row["id"] in STOPPED else {}) if row["status"] == "downloading" else {}
 
 
 def done_file(jid):
@@ -2430,10 +2477,14 @@ def cancel(jid: int):  # 라이브 녹화는 중지 후 저장, 다운로드/압
     if j and j[0]["status"] != "downloading" and jid not in RECOMP:  # 끝난 작업: 대기 중이면 빼기만 (남은 진행 상태로 취소 신호가 남지 않게)
         q("UPDATE jobs SET status='cancelled', error=NULL WHERE id=? AND status='queued'", (jid,))
         return
-    if j and LIVE.get(jid, {}).get("status") == "recording" and stop_recording(j[0]["video_id"]):
-        STOPPED.add(jid)  # 직접 멈춘 녹화는 이어서 녹화하지 않음
-        log(f"녹화 중지 → 저장: {j[0]['title']}")
-        return {"saved": True}
+    # 녹화는 취소 = 중지 후 저장. 이미 중지했는데 아직 안 끝났으면 바로 끝냄 (예전엔 두 번째 누름이 '취소'가 돼 녹화본까지 지워졌음)
+    if j and (jid in STOPPED or LIVE.get(jid, {}).get("status") == "recording"):
+        again = jid in STOPPED
+        if stop_recording(j[0]["video_id"], now=again) or again:
+            STOPPED.add(jid)  # 직접 멈춘 녹화는 이어서 녹화하지 않음
+            if not again:
+                log(f"녹화 중지 → 저장: {j[0]['title']}")
+            return {"saved": True}
     if jid in LIVE:
         CANCEL.add(jid)
         for exe in (b"aria2c", b"ffmpeg"):  # aria2c·받으면서 압축하는 ffmpeg 는 yt-dlp 진행률 콜백이 없어 직접 종료
@@ -2603,16 +2654,32 @@ def delete_sub(sid: int):
 
 
 CPU_PREV = [0, 0]  # 직전 /proc/stat (유휴, 전체) → 상태 화면 새로고침 사이의 CPU 사용률
+CORE_PREV = {}  # 코어마다 같은 것 (상태 화면 전용)
+
+
+@functools.cache
+def cpu_name():
+    """CPU 모델 이름 (ARM 등 'model name' 이 없으면 Hardware · 비움)"""
+    try:
+        with open("/proc/cpuinfo") as f:
+            info = {k.strip(): v.strip() for k, v in (l.split(":", 1) for l in f if ":" in l)}
+        return next((info[k] for k in ("model name", "Hardware", "Model") if info.get(k)), "")
+    except OSError:
+        return ""
 
 
 def load(prev=None):
     """서버 CPU·메모리 사용률(컨테이너에서도 서버 전체 값), 엔비디아 GPU 사용률(nvidia-smi 있을 때만). prev = 직전 측정 기준점"""
     prev = CPU_PREV if prev is None else prev
-    with open("/proc/stat") as f:
-        v = [int(x) for x in f.readline().split()[1:]]
-    idle, total = v[3] + v[4], sum(v)
-    d_idle, d_total = idle - prev[0], total - prev[1]
-    prev[:] = [idle, total]
+    with open("/proc/stat") as f:  # 첫 줄 = 전체, cpu0 · cpu1… = 코어마다 (코어별은 상태 화면에서만)
+        rows = [[int(x) for x in l.split()[1:]] for l in f if l.startswith("cpu")]
+    use = []
+    for i, v in enumerate(rows if prev is CPU_PREV else rows[:1]):
+        p = prev if i == 0 else CORE_PREV.setdefault(i, [0, 0])
+        idle, total = v[3] + v[4], sum(v)
+        d_idle, d_total = idle - p[0], total - p[1]
+        p[:] = [idle, total]
+        use.append(round(100 * (1 - d_idle / d_total), 1) if d_total > 0 else 0)
     mem = {}
     with open("/proc/meminfo") as f:
         for line in f:
@@ -2628,7 +2695,7 @@ def load(prev=None):
                 gpus.append({"name": name, "util": float(util), "enc": float(enc), "mem": float(used) * 2**20, "mem_total": float(tot) * 2**20})
         except (subprocess.SubprocessError, ValueError):
             pass
-    return {"cpu": round(100 * (1 - d_idle / d_total), 1) if d_total > 0 else 0, "cores": os.cpu_count(),
+    return {"cpu": use[0], "per_core": use[1:], "cpu_name": cpu_name(), "cores": os.cpu_count(),
             "mem": mem["MemTotal"] - mem["MemAvailable"], "mem_total": mem["MemTotal"], "gpus": gpus}
 
 

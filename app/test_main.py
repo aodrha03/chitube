@@ -439,20 +439,18 @@ main.q("UPDATE jobs SET status='downloading', retries=6 WHERE id=?", (sj["id"],)
 main.run_job(main.q("SELECT * FROM jobs WHERE id=?", (sj["id"],))[0], main.job_settings(sj))
 assert main.q("SELECT status FROM jobs WHERE id=?", (sj["id"],))[0]["status"] == "error"
 main.yt_dlp.YoutubeDL.extract_info, main.live_now, main.time.sleep = real
-# 녹화 멈춤 감시: 90초 안 커지면 정상 종료('q'), 그래도 30초 더 멈추면 강제 종료, 다시 커지면 초기화
+# 녹화 멈춤 감시: 설정 초만큼 안 커지면 정상 종료('q' → 안 끝나면 stop_recording 이 강제 종료), 다시 커지면 초기화
 calls = []
 real_stop, real_procs, real_kill = main.stop_recording, main.procs, main.os.kill
-main.stop_recording = lambda vid: calls.append(("q", vid))
+main.stop_recording = lambda vid, now=False: calls.append(("q", vid))
 main.procs = lambda exe, vid: [(4242, [])]
 main.os.kill = lambda pid, sig: calls.append(("kill", pid, sig))
 st = {}
 main.stall_check(sj["id"], 1000, st); st["t"] -= 46
 main.stall_check(sj["id"], 1000, st)
 assert calls == [("q", "chzzk-live-555")] and st["acted"] == 1
-main.stall_check(sj["id"], 1000, st); assert len(calls) == 1  # 30초 안 됨
 st["t"] -= 31
-main.stall_check(sj["id"], 1000, st)
-assert calls[-1] == ("kill", 4242, 9) and st["acted"] == 2
+main.stall_check(sj["id"], 1000, st); assert len(calls) == 1  # 강제 종료는 stop_recording 이 10초 뒤 알아서 (한 번만 부름)
 main.stall_check(sj["id"], 2000, st); assert st["acted"] == 0  # 다시 커지면 처음부터
 main.stop_recording, main.procs, main.os.kill = real_stop, real_procs, real_kill
 # 녹화분 보존: 파일이 잠겨 이름을 못 바꿔도 .part 그대로 보존 (잃지 않음)
@@ -988,3 +986,30 @@ res = json.loads(main.q("SELECT result FROM audits ORDER BY id DESC LIMIT 1")[0]
 assert [x["name"] for x in res["subs"]] == ["cz_audit"] and res["subs"][0]["platform"] == "chzzk" and "치지직은 계속" in res["aborted"]
 main.q("DELETE FROM subs WHERE name IN ('cz_audit','yt_audit')")
 print("queue page ok")
+
+# 압축 취소: ffmpeg 가 출력 없이 멈춰 있어도 바로 끝남 (예전엔 출력 줄이 와야 취소를 봤음)
+main.CANCEL.add(9901)
+t0 = main.time.time()
+assert main.run_ffmpeg(["sleep", "30"], 0, 9901) is not None and main.time.time() - t0 < 5
+main.CANCEL.discard(9901)
+# 녹화 중지를 이미 눌렀으면 다시 눌러도 '취소(파일 삭제)'가 되지 않음 → 저장 유지
+jid = main.q("INSERT INTO jobs(video_id, url, title, status, live) VALUES('stopx', 'https://chzzk.naver.com/live/x', 't', 'downloading', 1) RETURNING id")[0]["id"]
+main.STOPPED.add(jid); main.LIVE[jid] = {"status": "compressing"}
+assert main.cancel(jid) == {"saved": True} and jid not in main.CANCEL
+assert main.live_state(main.q("SELECT * FROM jobs WHERE id=?", (jid,))[0]).get("stopping")
+main.STOPPED.discard(jid); main.LIVE.pop(jid, None); main.q("DELETE FROM jobs WHERE id=?", (jid,))
+# kill_same: 같은 프로세스만 강제 종료
+pr = main.subprocess.Popen(["sleep", "30"])
+main.kill_same(pr.pid, [b"other"]); assert pr.poll() is None
+main.kill_same(pr.pid, open(f"/proc/{pr.pid}/cmdline", "rb").read().split(b"\0")); assert pr.wait(5) == -9
+# CPU 이름 · 코어별 사용률
+main.load(); L = main.load()
+assert len(L["per_core"]) == main.os.cpu_count() and isinstance(L["cpu_name"], str) and main.load([0, 0])["per_core"] == []
+# 사양별 기본값: 그래픽카드 없음 → 코어 수로 압축 개수, 직접 저장한 값은 그대로
+hw0, d0 = dict(main.HW), dict(main.DEFAULTS)
+main.HW.clear(); main.tune_defaults()
+assert main.DEFAULTS["compress_concurrency"] == str(max(1, min(4, main.os.cpu_count() // 8)))
+main.HW["nvenc"] = {"h265"}; main.tune_defaults()
+assert main.DEFAULTS["live_compress"] == "gpu" and main.DEFAULTS["compress_concurrency"] == "1"
+main.HW.clear(); main.HW.update(hw0); main.DEFAULTS.clear(); main.DEFAULTS.update(d0)
+print("cancel/tune ok")
