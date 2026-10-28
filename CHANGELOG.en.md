@@ -4,6 +4,16 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.9.2 — 2026-10-28
+### Improved
+- **Diagnostics precise enough to find the cause**: the "Download diagnostics" zip now also contains —
+  - `processes.txt`: every running ffmpeg / aria2c with state (running · waiting on network/disk), kernel wait point, CPU time, memory, run time and command line → tells "working" from "stuck" at a glance
+  - `threads.txt`: the code line each program thread is on right now (with job numbers) → where a stuck job is waiting
+  - `state.json`: live progress, cancel/stop requests, compression slots, how long the watchdog has seen no progress
+  - `stall-<date>.log`: processes and threads captured **right before** the watchdog cleaned up a stall → the cause of past stalls too (kept 7 days)
+  - `jobs_active.json` gains compression errors, file-check warnings, sizes, encoder and next retry time
+  - Cookies, auth headers and URL tokens are masked
+
 ## v1.9.1 — 2026-10-28
 ### Fixed
 - **Big videos were cut as "stalled" after downloading and re-downloaded from scratch over and over** (real case: the same video 3–4 times, every 20 min): the mp4 finalizing step (moving the moov atom) of 30 GB+ files shows no progress, so the watchdog took it as stuck → an ffmpeg that is using CPU now counts as progress.

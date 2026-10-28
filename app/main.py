@@ -1,4 +1,4 @@
-import collections, copy, functools, glob, http.cookiejar, json, os, random, re, shutil, sqlite3, subprocess, tempfile, threading, time, urllib.request
+import collections, copy, functools, glob, http.cookiejar, json, os, random, re, shutil, sqlite3, subprocess, sys, tempfile, threading, time, traceback, urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -181,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.9.1"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.9.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -263,7 +263,7 @@ def log(msg):
 
 
 def prune_logs():
-    for f in glob.glob(os.path.join(LOG_DIR, "chitube-*.log")):
+    for f in glob.glob(os.path.join(LOG_DIR, "*.log")):  # chitube-* (일반) · stall-* (멈춤 순간 기록)
         if os.path.getmtime(f) < time.time() - LOG_DAYS * 86400:
             os.remove(f)
 
@@ -1748,7 +1748,7 @@ def worker_step(slot, live):
                 continue
             # 받기는 따로 스레드에서. 다 받고 압축 단계로 넘어가면(또는 끝나면) dl 신호 → 이 스레드는 다음 영상을 받으러 감
             dl = threading.Event()
-            threading.Thread(target=job_thread, args=(job, s, dl), daemon=True).start()
+            threading.Thread(target=job_thread, args=(job, s, dl), daemon=True, name=f"작업 #{job['id']}").start()  # 진단 파일에서 어느 영상인지
             dl.wait()
             if live:  # 녹화가 끝나면 압축을 기다리지 않고 바로 이어서 녹화
                 continue_live(job)
@@ -1969,6 +1969,18 @@ def cpu_ticks(vid):
     return n
 
 
+def snapshot(why):
+    """멈춤으로 정리하기 직전의 프로세스 · 스레드 상태를 stall-날짜.log 에 (진단 파일에 들어감). 지나간 멈춤도 원인을 볼 수 있게"""
+    names = {t.ident: t.name for t in threading.enumerate()}
+    stacks = "".join(f"--- {names.get(i, i)}\n" + "".join(traceback.format_stack(f)[-4:])  # 스레드마다 마지막 4줄만
+                     for i, f in sys._current_frames().items())
+    try:
+        with open(os.path.join(LOG_DIR, time.strftime("stall-%Y-%m-%d.log")), "a", encoding="utf-8") as f:
+            f.write(f"===== {time.strftime('%m-%d %H:%M:%S')} {why}\n[프로세스]\n{diag_procs()}\n[스레드]\n{stacks}\n")
+    except OSError:
+        pass
+
+
 def watchdog_step():
     """1분마다 '받는 중' 작업 전부 확인: 진행(받은 양 · 압축 %)이 정해진 시간 동안 전혀 안 바뀌면 그 작업의 ffmpeg · aria2c 를 끝냄
     → 생방송은 녹화분 보존 + 이어서 녹화, 다운로드는 조금 뒤 다시 받기 (작업별 감시가 어떤 이유로든 죽어도 살아남)
@@ -2006,6 +2018,7 @@ def watchdog_step():
             WD.pop(jid, None)
             continue
         if idle >= WATCHDOG_SEC[kind]:
+            snapshot(f"감시자: {int(idle)}초 진행 없음 ({kind}) #{jid} {r['title']} — 진행 상태 {st}")
             killed = [pid for exe in (b"ffmpeg", b"aria2c") for pid, _ in procs(exe, r["video_id"])]
             if killed:
                 KILLED.add(jid)
@@ -2344,7 +2357,7 @@ def recompress(body: Recompress):
     for r in rows:
         RECOMP.add(r["id"])
         LIVE[r["id"]] = {"status": "compressing", "progress": 0, "waiting": True}
-        threading.Thread(target=recompress_one, args=(r, body.quality), daemon=True).start()
+        threading.Thread(target=recompress_one, args=(r, body.quality), daemon=True, name=f"인코딩 #{r['id']}").start()
     if rows:
         log(f"인코딩 {len(rows)}개 시작 ({body.quality})")
     return {"queued": len(rows)}
@@ -3074,6 +3087,38 @@ def organize():
     return {"moved": moved}
 
 
+def hide_secret(a):
+    """명령줄 인자에서 쿠키 · 인증 헤더 값과 주소의 토큰(? 뒤)을 가림 → 진단 파일을 남에게 보여 줘도 계정이 안 새게"""
+    a = re.sub(r"(?i)(cookie|authorization)\s*[:=][^\r\n]*", r"\1: ***", a)
+    return re.sub(r"(https?://[^\s?]+)\?\S*", r"\1?***", a)
+
+
+def diag_procs():
+    """실행 중인 ffmpeg · aria2c 등: 상태(R 실행 · S 기다림 · D 디스크 대기 · Z 끝났는데 안 거둬짐) · 커널에서 기다리는 곳 ·
+    CPU 시간 · 메모리 · 실행한 지 얼마나 · 명령줄. 멈춤이 '일하는 중'인지 '네트워크 · 디스크를 기다리는 중'인지 가릴 수 있음"""
+    hz = os.sysconf("SC_CLK_TCK")
+    with open("/proc/uptime") as f:
+        up = float(f.read().split()[0])
+    out = []
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmd = [x.decode(errors="replace") for x in f.read().split(b"\0") if x]
+            if not cmd or os.path.basename(cmd[0]) not in ("ffmpeg", "ffprobe", "aria2c", "nice", "deno", "chrome", "chromium"):
+                continue
+            with open(f"/proc/{pid}/stat") as f:
+                st = f.read().rsplit(")", 1)[1].split()
+            with open(f"/proc/{pid}/wchan") as f:
+                wchan = f.read()
+            with open(f"/proc/{pid}/status") as f:
+                rss = next((l.split()[1] for l in f if l.startswith("VmRSS")), "0")
+        except OSError:
+            continue
+        out.append(f"pid {pid} 상태 {st[0]} 대기 {wchan or '-'} CPU {(int(st[11]) + int(st[12])) / hz:.0f}초 "
+                   f"메모리 {int(rss) // 1024}MB 실행 {(up - int(st[19]) / hz) / 60:.0f}분\n  " + " ".join(hide_secret(a) for a in cmd))
+    return "\n".join(out) or "(없음)"
+
+
 @app.get("/api/diag")
 def diag():
     """문제 원인 찾기용 한 파일: 로그 · 상태(장치 · 부하 · 디스크 · 진행 중 · 최근 오류) · 설정 · 진행 중인 작업 (로그인 정보 · 쿠키는 넣지 않음)"""
@@ -3081,12 +3126,27 @@ def diag():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("logs.txt", logs_file().body)
-        z.writestr("status.json", json.dumps(status() | {"recent_loads": list(LOADS), "gpu_live": GPU_LIVE, "compressing": COMPRESSING},
-                                             ensure_ascii=False, indent=1, default=str))
+        z.writestr("status.json", json.dumps(status(), ensure_ascii=False, indent=1, default=str))
         z.writestr("settings.json", json.dumps(settings(), ensure_ascii=False, indent=1))
-        z.writestr("jobs_active.json", json.dumps(q("SELECT id, video_id, title, status, live, started, cut, retries, error FROM jobs "
-                                                    "WHERE status IN ('downloading','queued') OR finished > ?", (time.time() - 86400,)),
-                                                  ensure_ascii=False, indent=1))
+        z.writestr("processes.txt", diag_procs())
+        for f in sorted(glob.glob(os.path.join(LOG_DIR, "stall-*.log"))):  # 멈춤으로 정리한 순간들의 기록
+            z.write(f, os.path.basename(f))
+        # 스레드마다 지금 실행 중인 코드 줄 → 멈춘 작업이 어디서(압축 차례 · ffmpeg 기다림 · DB 등) 기다리는지 바로 보임
+        names = {t.ident: t.name for t in threading.enumerate()}
+        z.writestr("threads.txt", "\n".join(f"--- {names.get(i, i)}\n" + "".join(traceback.format_stack(f))
+                                            for i, f in sys._current_frames().items()))
+        now = time.time()
+        z.writestr("state.json", json.dumps({  # 프로그램 안 상태 (작업 id 기준)
+            "live": LIVE, "active": ACTIVE, "cancel": CANCEL, "stopped": STOPPED, "killed": KILLED, "recomp": RECOMP, "merging": MERGING,
+            "compressing": COMPRESSING, "comp_run": COMP_RUN, "gpu_live": GPU_LIVE,
+            "watchdog_idle_sec": {j: round(now - t) for j, (_, t) in WD.copy().items()}, "recent_loads": list(LOADS)},
+            ensure_ascii=False, indent=1, default=lambda o: sorted(o) if isinstance(o, set) else str(o)))
+        jobs = q("SELECT id, video_id, title, status, live, started, finished, cut, retries, retry_at, error, filepath, meta FROM jobs "
+                 "WHERE status IN ('downloading','queued') OR finished > ?", (time.time() - 86400,))
+        for j in jobs:  # 영상 설명 등은 빼고 원인 찾는 데 필요한 것만 (압축 실패 · 파일 검사 경고 · 크기 · 장치)
+            m = json.loads(j.pop("meta") or "{}")
+            j["meta"] = {k: m[k] for k in ("compress_error", "check_warn", "compressed", "size", "orig_size", "duration", "resolution", "vcodec") if k in m}
+        z.writestr("jobs_active.json", json.dumps(jobs, ensure_ascii=False, indent=1))
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f"attachment; filename=chitube-diag-{time.strftime('%Y%m%d-%H%M')}.zip"})
 

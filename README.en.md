@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.en.md"><img src="https://img.shields.io/badge/release-v1.9.1-ff0033" alt="v1.9.1"></a>
+  <a href="CHANGELOG.en.md"><img src="https://img.shields.io/badge/release-v1.9.2-ff0033" alt="v1.9.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12">

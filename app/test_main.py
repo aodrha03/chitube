@@ -879,7 +879,7 @@ main.q("INSERT OR REPLACE INTO settings(key, value) VALUES('concurrency', '20')"
 # 3. 진단 파일
 import zipfile
 zf = zipfile.ZipFile(io.BytesIO(main.diag().body))
-assert set(zf.namelist()) == {"logs.txt", "status.json", "settings.json", "jobs_active.json"} and "cookie" not in zf.read("settings.json").decode().lower()
+assert {"logs.txt", "status.json", "settings.json", "jobs_active.json", "processes.txt", "threads.txt", "state.json"} <= set(zf.namelist()) and "cookie" not in zf.read("settings.json").decode().lower()
 # 녹화 품질 검사: 10초 넘는 화면 멈춤 · 무음 구간 기록
 qd = tempfile.mkdtemp()
 main.subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=s=320x240:r=10:d=8", "-f", "lavfi", "-i", "color=c=gray:s=320x240:r=10:d=15",
@@ -1028,3 +1028,19 @@ main.HW["nvenc"] = {"h265"}; main.tune_defaults()
 assert main.DEFAULTS["live_compress"] == "gpu" and main.DEFAULTS["compress_concurrency"] == "1"
 main.HW.clear(); main.HW.update(hw0); main.DEFAULTS.clear(); main.DEFAULTS.update(d0)
 print("cancel/tune ok")
+
+# 진단: 쿠키 · 토큰은 가리고 프로세스 · 스레드 · 상태 · 멈춤 순간 기록이 들어감
+assert main.hide_secret("Cookie: NID_AUT=abc; NID_SES=x") == "Cookie: ***"
+assert main.hide_secret("https://a.b/c.m3u8?hdnts=st=1~exp=2") == "https://a.b/c.m3u8?***"
+pr = main.subprocess.Popen(["ffmpeg", "-v", "error", "-re", "-f", "lavfi", "-i", "nullsrc=s=16x16:r=1", "-headers", "Cookie: SECRET1", "-f", "null", "/x/[diag0001]"])
+main.time.sleep(1)
+main.snapshot("테스트 멈춤")
+import io, zipfile
+z = zipfile.ZipFile(io.BytesIO(main.diag().body))
+names = set(z.namelist())
+assert {"processes.txt", "threads.txt", "state.json", "jobs_active.json"} <= names and any(n.startswith("stall-") for n in names), names
+ptxt = z.read("processes.txt").decode()
+assert "[diag0001]" in ptxt and "SECRET1" not in ptxt and "상태 " in ptxt
+assert "테스트 멈춤" in z.read(next(n for n in names if n.startswith("stall-"))).decode() and "MainThread" in z.read("threads.txt").decode()
+pr.kill(); pr.wait()
+print("diag ok")

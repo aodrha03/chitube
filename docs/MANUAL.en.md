@@ -322,7 +322,7 @@ Add the **save folder** (default `YouTube`) as the library folder. If you add th
 - **Usage by channel**: the 10 channels using the most space (click to expand)
 - Subscription schedule (next check per platform, "Check now")
 - Recent activity · recent errors (common errors in plain words, the original message in the video info)
-- **Download log file** / **Download diagnostics**: the last 7 days of logs, or logs + status + settings + active jobs in one zip (no login info) for troubleshooting.
+- **Download log file** / **Download diagnostics**: the last 7 days of logs, or logs + status + settings + active jobs + processes + stall snapshots in one zip (no login info) for troubleshooting.
 - **Hide errors**: **Hide** / **Hide all** in recent errors, or open that video's info window — it counts as seen and disappears from the error count, recent errors and the red text on the card. It stays in the video info, and a new failure shows again.
 
 ### Download audit (default: twice a day, 4 AM · 4 PM)
@@ -372,7 +372,7 @@ If you copy the `config/` folder itself as a backup, stop ChiTube first and incl
 
 | Symptom | Fix |
 |---|---|
-| A problem you can't explain | Status → Recent activity → **Download diagnostics** (logs, status, settings and active jobs in one file, no login info) — send just this file when asking for help. For logs only: **Download log file** (also in `config/logs/`) |
+| A problem you can't explain | Status → Recent activity → **Download diagnostics** (logs, status, settings, active jobs, running ffmpeg processes, internal state and a snapshot of every moment the watchdog cleaned up a stall, in one file; cookies, login info and URL tokens are masked) — send just this file when asking for help. For logs only: **Download log file** (also in `config/logs/`) |
 | "⚠ Settings to check" on the Status page | Risky setting combinations or low space. Follow the hint and it disappears |
 | Failures from network/server errors (timeout, 503…) | Retried automatically after 1 → 5 → 15 minutes, then again at the audit |
 | Synology `Bind mount failed: ... does not exist` | Create empty `config/` and `downloads/` folders in the project folder |
