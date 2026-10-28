@@ -946,4 +946,32 @@ dsid = main.q("SELECT id FROM subs WHERE name='ds'")[0]["id"]
 main.q("INSERT INTO jobs(video_id,url,title,opts,status,sub_id) VALUES('dsq0000001','u','q','{}','queued',?),('dsd0000001','u','d','{}','done',?)", (dsid, dsid))
 main.delete_sub(dsid)
 assert not main.q("SELECT 1 FROM jobs WHERE video_id='dsq0000001'") and main.q("SELECT 1 FROM jobs WHERE video_id='dsd0000001'")
+# 지운 영상: 자동 확인은 건너뛰고, 기존 영상 전부 받기 · 첫 확인은 받음, 구독을 지우면 기억도 지움
+main.q("INSERT INTO subs(url, name) VALUES('https://www.youtube.com/@rm2', 'rm2')")
+r2 = main.q("SELECT id FROM subs WHERE name='rm2'")[0]["id"]
+main.add_entries([{"id": "removed0002", "url": "u", "title": "x"}], "videos", r2)
+main.delete_job(main.q("SELECT id FROM jobs WHERE video_id='removed0002'")[0]["id"])
+assert main.q("SELECT sub_id FROM removed WHERE video_id='removed0002'")[0]["sub_id"] == r2
+assert main.add_entries([{"id": "removed0002", "url": "u", "title": "x"}], "videos", r2) == 0  # 자동 확인
+assert main.add_entries([{"id": "removed0002", "url": "u", "title": "x"}], "videos", r2, skip_removed=False) == 1  # 직접 누른 받기
+main.delete_job(main.q("SELECT id FROM jobs WHERE video_id='removed0002'")[0]["id"])
+main.delete_sub(r2)
+assert not main.q("SELECT 1 FROM removed WHERE video_id='removed0002'")
+assert main.clear_removed()["cleared"] >= 0 and main.q("PRAGMA index_list(jobs)")
+# 다시보기 건너뛰기는 매번 지금 기록으로 판단 (녹화를 지우면 바로 다시보기를 받음)
+rz = "6" * 32
+main.q("INSERT INTO jobs(video_id,url,title,opts,live,status,live_open,meta) VALUES('chzzk-live-9951',?,'방송','{}',1,'done','2026-10-28 20:00:00',?)",
+       (f"https://chzzk.naver.com/live/{rz}", json.dumps({"duration": 3000})))
+real_api, main.chzzk_api = main.chzzk_api, lambda path: {"liveOpenDate": "2026-10-28 20:00:00"}
+assert main.recorded_replay(rz, {"videoNo": 9951, "videoType": "REPLAY", "duration": 3000})
+main.q("DELETE FROM jobs WHERE video_id='chzzk-live-9951'")
+main.q("INSERT INTO jobs(video_id,url,title,opts,live,status,live_open) VALUES('chzzk-live-9952',?,'다른 방송','{}',1,'done','2026-10-01 20:00:00')", (f"https://chzzk.naver.com/live/{rz}",))
+assert not main.recorded_replay(rz, {"videoNo": 9951, "videoType": "REPLAY", "duration": 3000})  # 녹화를 지웠으니 다시보기를 받음
+main.chzzk_api = real_api
+# '지금 확인'은 지운 영상을 그대로 건너뜀 (새 구독 첫 확인만 지운 영상도 받음)
+main.q("INSERT INTO subs(url, name, last_checked) VALUES('https://www.youtube.com/@ck1', 'ck1', 5000)")
+ck1 = main.q("SELECT id FROM subs WHERE name='ck1'")[0]["id"]
+main.check_now(ck1); main.check_all()
+assert main.q("SELECT last_checked FROM subs WHERE id=?", (ck1,))[0]["last_checked"] == 1
+main.STATE.pop("audit_now", None); main.WAKE.clear()
 print("queue page ok")

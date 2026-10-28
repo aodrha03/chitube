@@ -262,6 +262,7 @@
       </details>
       <h3 class="sg">관리 <span class="mute">누르면 바로 실행 (아래 '저장'과 상관없음)</span></h3>
       <div class="tools">
+        <div><button type="button" onclick="confirm('지운 영상 기록을 지울까요? 구독 확인 · 점검이 예전에 지운 영상도 다시 받습니다.') && api('/api/removed/clear', { method: 'POST' }).then(r => alert(r.cleared + '개 기록을 지웠습니다'))">지운 영상 기록 초기화</button><span class="mute">목록에서 지운 영상은 구독 확인으로 다시 받지 않게 기억함</span></div>
         <div><button type="button" onclick="organize(this)">이미 받은 영상을 영상별 폴더로 정리</button><span class="mute" id="orgmsg">영상·썸네일·자막·nfo 를 함께 옮김</span></div>
         <div><a href="/api/backup"><button type="button">설정·구독 백업 파일 받기</button></a><span class="mute">서버를 옮기거나 다시 설치할 때</span></div>
         <div><button type="button" onclick="this.nextElementSibling.click()">백업 불러오기</button><input type="file" accept=".json,application/json" hidden onchange="restoreBackup(this)"><span class="mute" id="bakmsg">로그인 정보·받은 영상 목록은 포함 안 됨</span></div>
@@ -506,7 +507,7 @@ const EN = {
   '개 적용, 구독': ' applied, subscriptions', '개 → 대기열': ' → queue', '개 완료 ·': ' done ·', '개 추가됨': ' added', '개 정리함': ' cleaned', '개 비교': ' compared', '개 선택': ' selected',
   '개 추가': ' added', '0개 선택': '0 selected', '(새 영상': '(new', '· 다음 확인': '· next check', '· 마지막': '· last', '· 전체': '· total', '· 치지직': '· Chzzk', '· 만료': '· expires',
   '(생방송': '(live', '받을 영상:': 'Will download:', '다운로드:': 'Downloads:', '실패:': 'Failed:', '멈춤:': 'Paused:', '경로:': 'Path:',
-  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '남은 공간': 'free space', '≈ 원본 녹화 약': '≈ about', '시간 분량': 'h of original recordings', '녹화 끊김 (녹화분 보존)': 'Recording cut (recording kept)',
+  '마지막 확인': 'Last check', '1분 내': 'within 1 min', '✓ 시작': '✓ Started', '개만 표시': ' shown', '… 처음': '… first', '지운 영상이라 건너뜀': 'skipped (removed by you)', '분량': 'of original recordings', '다시 시도': 'Retry', '다시 압축해서 합치는 중… (끝나면 로그에 표시)': 'Re-encoding and merging… (shown in the log when done)', '미리보기 만드는 중…': 'Building preview…', '서버 연결 끊김 - 재연결 시도 중...': 'Disconnected from server - reconnecting...', '재시작 중... 잠시 후 자동으로 다시 연결됩니다': 'Restarting... will reconnect automatically', '조회 중...': 'Looking up...', '취소함 — 봇 감지 쉬는 시간이 끝나면 다시 받아 주세요': 'Cancelled — download again after the bot-detection pause ends', '합치는 중… (큰 파일은 몇 분)': 'Merging… (a few minutes for large files)', '확인 중...': 'Checking...', '개를 한 파일로 합쳤습니다': ' parts merged into one file', '개 압축 시작': ' compression(s) started', '개를 압축할까요?': ' videos — compress them?', '(완료된 영상만 · 작아질 때만 바꾸고 원본은 지움 · 동시 압축 개수만큼 차례로)': '(done videos only · replaced only if smaller, original deleted · runs up to the concurrent-compression limit)', '. 지금 재시작하면 녹화가 끊깁니다.': '. Restarting now will cut the recording.', '녹화가 모두 끝나면 자동으로 업데이트할까요?': 'Update automatically when all recordings end?', '(취소를 누르면 다음 확인 창에서 지금 바로 할지 고를 수 있습니다)': '(press Cancel to choose updating right now in the next dialog)', '개를 녹화 중입니다': ' being recorded', '녹화를 끊고 지금 바로 업데이트할까요? (그때까지 녹화분은 보존, 재시작 후 새 파일로 이어서 녹화)': 'Cut the recording and update now? (recorded part is kept; recording continues in a new file after the restart)', '2개 이상은 유튜브 차단(봇 감지) 위험이 큽니다': '2 or more risks a YouTube block (bot detection)', '유튜브 동시 다운로드': 'YouTube concurrent downloads', '최소 여유 공간이 0 (끔): 디스크가 가득 차면 받던 영상 · 녹화가 깨집니다': 'Minimum free space is 0 (off): videos and recordings break when the disk fills up', '초: 길수록 멈췄을 때 빠지는 구간이 깁니다 (기본 45초)': ' s: the longer it is, the more is missing when a recording stalls (default 45 s)', '이 카드 측정값': 'This card measured', '개가 적당합니다': ' is about right', '보급형 카드(RTX A400 · GTX 1650 등)는 1080p 생방송 2~3개가 한계입니다': 'Entry-level cards (RTX A400, GTX 1650…) handle about 2–3 1080p streams', '— 넘으면 녹화가 멈출 수 있음 (설정 → 공통 → 압축)': '— more may stall recordings (Settings → Common → Compression)', 'CPU 로 동시에 압축': 'Concurrent CPU compressions', '개는 이 서버(코어': ' is a lot for this server (', '개)에 많습니다': ' cores)', '→ 생방송 녹화 · 다운로드가 느려질 수 있음 (설정 → YouTube / 치지직 → 동시 압축)': '→ recordings and downloads may slow down (Settings → YouTube / Chzzk → Concurrent compressions)', '지운 영상 기록 초기화': 'Clear removed-video list', '목록에서 지운 영상은 구독 확인으로 다시 받지 않게 기억함': 'Videos you removed are remembered so subscriptions don\'t download them again', '개 기록을 지웠습니다': ' entries cleared', '지운 영상 기록을 지울까요? 구독 확인 · 점검이 예전에 지운 영상도 다시 받습니다.': 'Clear the removed-video list? Subscriptions and audits will download those videos again.', '남은 공간': 'free space', '≈ 원본 녹화 약': '≈ about', '시간 분량': 'h of original recordings', '녹화 끊김 (녹화분 보존)': 'Recording cut (recording kept)',
   '녹화 끊김 → 이어서 녹화': 'Recording cut → continuing', '번째 파일)': ')', '인코딩 완료': 'Encoding done', '인코딩 시작': 'Encoding started', '구독 삭제? (받은 파일은 유지 · 아직 안 받은 대기 영상은 대기열에서 빠짐)': 'Delete subscription? (downloaded files are kept · queued videos are removed from the queue)', '(구독 확인으로 다시 받지 않음)': '(subscriptions won\'t download it again)', '목록에서 삭제? (파일은 유지 · 구독 확인으로 다시 받지 않음)': 'Remove from list? (file kept · subscriptions won\'t download it again)', '파일까지 삭제': 'Delete with files', '영상 파일까지 지울까요?': 'Delete the video file too?', '썸네일 · 자막 · nfo 도 함께 지워지고 되돌릴 수 없습니다.': 'Thumbnail, subtitles and .nfo are deleted too. This cannot be undone.',
   '목록에서 지우고, 남은 조각 · 썸네일 같은 딸린 파일도 지울까요?': 'Remove from the list and delete leftover files (parts, thumbnail)?', '개를 영상 파일까지 지울까요?': ' videos — delete the files too?', '(받는 중인 영상은 건너뜀)': '(videos still downloading are skipped)', '받은 직후 검사:': 'Post-download check:', '길이가 원본과 다름': 'Length differs from the source', '품질 검사': 'Quality check', '이상 없음': 'No issues', '(10초 넘는 화면 멈춤 · 무음 없음)': '(no freeze or silence over 10s)', '화면 멈춤': 'Frozen video', '무음': 'Silence', '측정:': 'Measured:', '동시에 녹화하면서 압축 권장': 'recommended concurrent live GPU compressions', '⚠ 확인해 볼 설정': '⚠ Settings to check', '진단 파일 받기': 'Download diagnostics', '로그 · 상태 · 설정 · 진행 중인 작업을 한 파일로 (로그인 정보는 빠짐) — 문제 문의할 때 이 파일 하나만': 'Logs, status, settings and active jobs in one file (no login info)',
   '끊긴 녹화는 다시보기로 메우기 (치지직)': 'Fill recording gaps with the replay (Chzzk)', '켜기 (끊겼던 방송은 다시보기도 받음)': 'On (also download the replay of interrupted streams)',
@@ -1051,7 +1052,7 @@ async function loadJobs(el, q = '', p = null) {  // p 가 있으면 플랫폼 �
 }
 
 const schedText = s => !s.enabled ? '일시정지됨' :
-  `마지막 확인 ${s.last_checked ? rel(s.last_checked) : '없음'}${s.last_checked ? ` (새 영상 ${s.last_found ?? 0}개)` : ''} · 다음 확인 ${s.next_check * 1000 <= Date.now() ? '곧' : `${clock(s.next_check)} (${rel(s.next_check)})`}`;
+  `마지막 확인 ${s.last_checked > 1 ? rel(s.last_checked) : '없음'}${s.last_checked > 1 ? ` (새 영상 ${s.last_found ?? 0}개)` : ''} · 다음 확인 ${s.next_check * 1000 <= Date.now() ? '곧' : `${clock(s.next_check)} (${rel(s.next_check)})`}`;
 
 async function loadSubs(p) {
   const subs = await api('/api/subs?platform=' + p);
@@ -1159,7 +1160,7 @@ async function loadStatus() {
     <div class="srow ${s.enabled ? '' : 'off'}">
       <div class="row"><b translate="no">${esc(s.name)}</b><span>${kindTags(s)}<button class="sm" onclick="act('/api/subs/${s.id}/check','POST')">지금 확인</button></span></div>
       <div class="mute">${!s.enabled ? '일시정지됨' : `다음 ${s.next_check * 1000 <= Date.now() ? '곧' : `${clock(s.next_check)} (${rel(s.next_check)})`}`}
-        · ${ivName(s.interval_min || SET.check_interval_min)}${s.last_checked ? ` · 마지막 ${clock(s.last_checked)} 새 영상 ${s.last_found ?? 0}개` : ''}
+        · ${ivName(s.interval_min || SET.check_interval_min)}${s.last_checked > 1 ? ` · 마지막 ${clock(s.last_checked)} 새 영상 ${s.last_found ?? 0}개` : ''}
         ${p === 'chzzk' && s.enabled && (s.kinds || '').includes('streams') ? ' · <b style="color:var(--fg)">생방송 10초마다 감시 중</b>' : ''}</div>
       ${s.last_error ? `<div class="err">${esc(koErr(s.last_error).slice(0, 100))}</div>` : ''}
     </div>`).join('') || '<div class="mute">구독한 채널 없음</div>');
@@ -1182,7 +1183,7 @@ function renderAudit(au) {
   if (!r) return setHTML(document.getElementById('audit'), head);
   const n = (t, v, bad) => `<div><span class="mute">${t}</span><b style="${bad ? 'color:var(--warn)' : ''}">${v}</b></div>`;
   setHTML(document.getElementById('audit'), head + `
-    <div class="nums">${n('놓친 영상', r.missing_added, r.missing_added)}${n('파일 정상', `${r.files_checked - r.file_issues.length}/${r.files_checked}`, r.file_issues.length)}${n('재시도', r.retried)}${n('포기', r.gave_up.length, r.gave_up.length)}</div>
+    <div class="nums">${n('놓친 영상', r.missing_added, r.missing_added)}${n('파일 정상', `${r.files_checked - (r.file_issues_n ?? r.file_issues.length)}/${r.files_checked}`, r.file_issues_n ?? r.file_issues.length)}${n('재시도', r.retried)}${n('포기', r.gave_up_n ?? r.gave_up.length, r.gave_up_n ?? r.gave_up.length)}</div>
     ${r.aborted ? `<div class="err" style="margin-top:8px">${esc(r.aborted)}</div>` : ''}
     ${auditTabs(r)}`);
 }
@@ -1193,13 +1194,13 @@ function auditTabs(r) {
       <button class="sm" onclick="confirm('기존 파일을 지우고 다시 받을까요?') && act('/api/jobs/${i.id}/redownload','POST')">다시 받기</button></div>`],
     ['gone', '원본 사라짐', r.gone || [], g => `<div class="arow"><a onclick="detail(${g.id})" translate="no">${esc(g.title || '')}</a><span class="mute">채널 목록에서 사라짐 · 받은 파일은 그대로</span><span></span></div>`],
     ['gaveup', '다운로드 포기', r.gave_up, g => `<div class="arow"><a onclick="detail(${g.id})" translate="no">${esc(g.title || '')}</a><span class="err" title="${esc(g.error)}">${esc(koErr(g.error))}</span><span></span></div>`],
-    ['subs', '유튜버별 비교', r.subs, x => `<div class="arow"><span translate="no">${esc(x.name)}</span><span class="mute">최신 ${x.listed}개 비교${x.missing ? ` · <b>놓친 ${x.missing}개 → 대기열</b>` : ''}</span><span class="err">${x.error ? esc(koErr(x.error).slice(0, 60)) : ''}</span></div>`]
+    ['subs', '유튜버별 비교', r.subs, x => `<div class="arow"><span translate="no">${esc(x.name)}</span><span class="mute">최신 ${x.listed}개 비교${x.missing ? ` · <b>놓친 ${x.missing}개 → 대기열</b>` : ''}${x.removed ? ` · 지운 영상이라 건너뜀 ${x.removed}개` : ''}</span><span class="err">${x.error ? esc(koErr(x.error).slice(0, 60)) : ''}</span></div>`]
   ].filter(t => t[2].length);
   if (!tabs.length) return '<div class="mute" style="margin-top:12px">문제 없음</div>';
   if (!tabs.some(t => t[0] === ATAB)) ATAB = tabs[0][0];
   const [, , list, row] = tabs.find(t => t[0] === ATAB);
-  return `<div class="filters" style="margin-top:12px">${tabs.map(([k, t, l]) => `<button class="${k === ATAB ? 'on' : ''}" onclick="ATAB='${k}'; loadStatus()">${t} ${l.length}</button>`).join('')}</div>
-    <div class="alist">${list.map(row).join('')}</div>`;
+  return `<div class="filters" style="margin-top:12px">${tabs.map(([k, t, l]) => `<button class="${k === ATAB ? 'on' : ''}" onclick="ATAB='${k}'; loadStatus()">${t} ${r[{ files: 'file_issues', gaveup: 'gave_up', gone: 'gone' }[k] + '_n'] ?? l.length}</button>`).join('')}</div>
+    <div class="alist">${list.map(row).join('')}${(r[{ files: 'file_issues', gaveup: 'gave_up', gone: 'gone' }[ATAB] + '_n'] || 0) > list.length ? `<div class="mute">… 처음 ${list.length}개만 표시</div>` : ''}</div>`;
 }
 
 function renderUpdates(st) {

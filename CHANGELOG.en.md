@@ -4,6 +4,21 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.7.3 — 2026-10-28
+### Fixed
+- **Channels you had downloaded and then deleted could not be downloaded again via subscription or "download all existing videos"** (1.7.1): the removed-video memory also applied to actions you started yourself and survived deleting the subscription → it now applies only to automatic checks and audits, is cleared when the subscription is deleted, and Settings → Manage has "Clear removed-video list".
+### Changed
+- **Database optimization**: indexes on frequently searched columns (faster lists, queue and audits with many videos), plus one VACUUM · ANALYZE on the first start of a new version.
+- Silenced the pip update / root warnings printed at startup (harmless).
+- **Stopping / rebooting ends recordings cleanly and exits right away**: `init: true` and a 30 s stop grace period in compose (it used to wait until Docker force-killed it — one cause of slow Ubuntu reboots).
+- The audit's per-channel comparison shows "skipped (removed by you) N".
+### Fixed (more)
+- **Replays stayed skipped after you deleted the live recording**: the "recorded live, skip the replay" decision was cached until restart → decided from current records every time.
+- **"Check now" / "Check all" re-downloaded removed videos** (introduced earlier in this 1.7.3) → only a new subscription's first check and "download all existing videos" ignore the removed list.
+- English UI: ~30 more translations for dialogs, alerts, progress messages and Status hints.
+- **The Status page was sluggish with many videos**: the audit API sent the last 7 results in full and re-checked every problem file every 2 s (10,000 videos: 3.4 s, ~1 MB) → latest result only, re-check every 15 s, lists capped at 300 (totals sent separately) — 0.03 s, 42 KB.
+- **Pressing "merge parts" twice could merge the same parts concurrently and corrupt the file** (same-format merges weren't marked as in progress).
+
 ## v1.7.2 — 2026-10-28
 ### Fixed (found by running real recordings and downloads in the UI)
 - **YouTube block messages in Korean weren't recognized**, so ChiTube kept sending requests while blocked → now pauses for 1 hour.

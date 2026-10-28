@@ -1,7 +1,7 @@
 #!/bin/sh
 # 컨테이너 시작 (웹 화면의 "재시작해서 업데이트"도 이 과정을 거침)
 # 1) yt-dlp·deno 최신화 (유튜브가 자주 바뀜)
-pip install -q -U --no-cache-dir 'yt-dlp[default]'
+PIP_DISABLE_PIP_VERSION_CHECK=1 pip install -q -U --no-cache-dir --root-user-action=ignore 'yt-dlp[default]'  # 업데이트 안내 · root 경고 문구는 끔 (동작엔 영향 없음)
 deno upgrade >/dev/null 2>&1
 
 # 2) /config·/downloads 소유권을 PUID/PGID 로 (시놀로지/NAS 파일 권한)

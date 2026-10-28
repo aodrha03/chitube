@@ -181,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.7.2"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.7.3"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -215,7 +215,7 @@ def init_db():
     """)
     for t, col in (("jobs", "thumb TEXT"), ("jobs", "retries INTEGER DEFAULT 0"), ("jobs", "meta TEXT"), ("jobs", "opts TEXT"), ("jobs", "kind TEXT"), ("jobs", "live INTEGER DEFAULT 0"), ("jobs", "pri INTEGER DEFAULT 0"),
                    ("jobs", "started REAL"), ("jobs", "cut REAL"),  # 받기(녹화) 시작 시각, 생방송 녹화가 끊긴 시각
-                   ("jobs", "finished REAL"), ("jobs", "live_open TEXT"), ("jobs", "retry_at REAL"), ("jobs", "err_seen INTEGER DEFAULT 0"),  # err_seen: 오류를 확인함(목록·상태에서 숨김)
+                   ("jobs", "finished REAL"), ("jobs", "live_open TEXT"), ("jobs", "retry_at REAL"), ("removed", "sub_id INTEGER"), ("jobs", "err_seen INTEGER DEFAULT 0"),  # err_seen: 오류를 확인함(목록·상태에서 숨김)
                    ("subs", "avatar TEXT"), ("subs", "quality TEXT"),
                    ("subs", "max_height TEXT"), ("subs", "folder TEXT"), ("subs", "kinds TEXT"),
                    ("subs", "interval_min TEXT"), ("subs", "last_error TEXT"), ("subs", "last_found INTEGER"),
@@ -223,6 +223,18 @@ def init_db():
         try:  # 기존 DB 업그레이드
             c.execute(f"ALTER TABLE {t} ADD COLUMN {col}")
         except sqlite3.OperationalError:
+            pass
+    # 자주 찾는 칸 색인 (영상이 수천 개일 때 목록 · 대기열 · 점검이 빨라짐)
+    c.executescript("""CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status); CREATE INDEX IF NOT EXISTS jobs_sub ON jobs(sub_id);
+                       CREATE INDEX IF NOT EXISTS jobs_url ON jobs(url); CREATE INDEX IF NOT EXISTS jobs_live_open ON jobs(live_open);""")
+    mark = os.path.join(CONFIG, ".db_version")  # 버전이 바뀐 첫 시작에 한 번 DB 정리 (지운 기록 자리 회수 · 통계 갱신)
+    if (open(mark).read().strip() if os.path.exists(mark) else "") != APP_VERSION:
+        try:
+            c.execute("VACUUM")
+            c.execute("ANALYZE")
+            with open(mark, "w") as f:
+                f.write(APP_VERSION)
+        except (sqlite3.Error, OSError):
             pass
     c.close()
     # 예전 버그(v0.22.0 이전: 점검이 끝난 생방송을 다시 녹화)로 녹화 파일이 있는데 '오류'가 되고 시작 시각이 덮어써진 기록 바로잡기
@@ -405,13 +417,15 @@ def list_entries(url, limit=None):
     return entries, info.get("channel") or info.get("uploader") or info.get("title"), kind
 
 
-def add_entries(entries, kind, sub_id=None, opts=None, filt=True):
+def add_entries(entries, kind, sub_id=None, opts=None, filt=True, skip_removed=True):
+    """skip_removed: 사용자가 지운 영상은 건너뜀 — 자동 확인(정기 구독 확인 · 점검)에만. 사용자가 직접 누른 '기존 영상 전부 받기'
+    · 새 구독 첫 확인 · '지금 확인'은 False (예전 1.7.1~1.7.2 는 이때도 건너뛰어, 한 번 받았다 지운 채널은 다시 받을 수 없었음)"""
     added = 0
-    if sub_id:  # 사용자가 지운 영상은 구독 확인 · 점검으로 다시 받지 않음 (예전엔 채널 최신 목록에 있으면 지워도 또 받았음)
+    if sub_id and skip_removed:  # 사용자가 지운 영상은 자동 확인으로 다시 받지 않음 (예전엔 채널 최신 목록에 있으면 지워도 또 받았음)
         gone = {r["video_id"] for r in q(f"SELECT video_id FROM removed WHERE video_id IN ({','.join('?' * len(entries)) or 'NULL'})",
                                          [e["id"] for e in entries])}
         entries = [e for e in entries if e["id"] not in gone]
-    else:  # 주소를 넣어 직접 받으면 그 영상은 다시 받는 것으로
+    else:  # 주소를 넣어 직접 받거나 사용자가 직접 '받기'를 누르면 그 영상은 다시 받는 것으로
         for e in entries:
             q("DELETE FROM removed WHERE video_id=?", (e["id"],))
     if f := filt and sub_id and q("SELECT title_inc, title_exc, min_min FROM subs WHERE id=?", (sub_id,)):
@@ -426,9 +440,9 @@ def add_entries(entries, kind, sub_id=None, opts=None, filt=True):
     return added
 
 
-def enqueue(url, sub_id=None, limit=None, opts=None):
+def enqueue(url, sub_id=None, limit=None, opts=None, skip_removed=True):
     entries, name, kind = list_entries(url, limit)
-    return add_entries(entries, kind, sub_id, opts), name
+    return add_entries(entries, kind, sub_id, opts, skip_removed=skip_removed), name
 
 
 def load_jar(path):
@@ -479,39 +493,51 @@ def chzzk_entries(url, limit=None):
 # 녹화가 끊겼던 방송: 끊긴 시각이 있거나, 이어서 녹화한 조각(-p2…)이 있거나, 조각을 합친 녹화
 CUT_SQL = "(cut IS NOT NULL OR video_id LIKE 'chzzk-live-%-p%' OR COALESCE(json_extract(meta, '$.merged'), 1) > 1)"
 GAP_OPEN = {}  # 빈 곳을 메우려고 받는 다시보기 번호 → 그 방송 시작 시각 (다시보기 작업의 live_open 으로 저장)
-REPLAY_SEEN = {}  # 다시보기 번호 → 생방송 녹화로 이미 받은 방송인지 (확인 결과 기억, 매번 API 안 부르게)
+OPEN_OF = {}  # 다시보기 번호 → 그 방송 시작 시각 (바뀌지 않는 값이라 기억 → 확인할 때마다 API 를 부르지 않음)
+REPLAY_SEEN = {}  # 다시보기 번호 → 마지막으로 알린 판단 (같은 안내를 확인 때마다 로그에 또 남기지 않게)
+
+
+def replay_open(no):
+    if no not in OPEN_OF:
+        OPEN_OF[no] = chzzk_api(f"/v3/videos/{no}").get("liveOpenDate")
+    return OPEN_OF[no]
+
+
+def replay_note(no, skip, msg):
+    if REPLAY_SEEN.get(no) != skip:
+        REPLAY_SEEN[no] = skip
+        log(msg)
 
 
 def recorded_replay(cid, v):
-    """생방송 녹화로 이미 받은 방송의 다시보기면 True. 다시보기 상세의 liveOpenDate == 녹화 때 저장한 방송 시작 시각(openDate)"""
+    """생방송 녹화로 이미 받은 방송의 다시보기면 True. 다시보기 상세의 liveOpenDate == 녹화 때 저장한 방송 시작 시각(openDate).
+    판단은 매번 지금 기록으로 (예전엔 '건너뜀'을 기억해서, 그 뒤 녹화를 지워도 재시작 전까지 다시보기를 계속 건너뛰었음)"""
     no = str(v["videoNo"])
     if v.get("videoType") != "REPLAY" or q("SELECT 1 FROM jobs WHERE video_id=?", (no,)):
         return False
-    if no not in REPLAY_SEEN:
-        live_url = f"https://chzzk.naver.com/live/{cid}"
-        if not q("SELECT 1 FROM jobs WHERE url=? AND live_open IS NOT NULL LIMIT 1", (live_url,)):
-            return False  # 이 채널 녹화가 없으면 상세 조회 안 함 (기억도 안 함 → 나중에 녹화하면 다시 확인)
-        try:
-            opened = chzzk_api(f"/v3/videos/{no}").get("liveOpenDate")
-        except Exception:
-            return False
-        rec = q(f"SELECT filepath, meta, status, {CUT_SQL} AS cut FROM jobs WHERE url=? AND live_open=? AND status IN ('done','queued','downloading')", (live_url, opened))
-        if any(r["status"] != "done" for r in rec):  # 녹화 · 압축이 아직 안 끝남 → 이번엔 받지 않고 다음 확인 때 다시 판단 (기억 안 함)
-            return True
-        if not rec:
-            REPLAY_SEEN[no] = False
-            return False
-        if any(r["cut"] for r in rec) and settings()["gap_fill"] == "1":  # 녹화가 끊겼던 방송 → 다시보기로 빈 곳 메움
-            REPLAY_SEEN[no], GAP_OPEN[no] = False, opened
-            log(f"녹화가 끊겼던 방송이라 다시보기도 받아 빈 곳을 메움: {v.get('videoTitle')}")
-            return False
-        # 녹화가 방송 전체를 담았을 때만 건너뜀. 늦게 발견했거나 끊겨서 빠진 구간이 있으면(다시보기의 90% 미만) 다시보기도 받음
-        got = sum(json.loads(r["meta"] or "{}").get("duration") or (probe_duration(r["filepath"]) if r["filepath"] and os.path.isfile(r["filepath"]) else 0)
-                  for r in rec)
-        REPLAY_SEEN[no] = not v.get("duration") or got >= v["duration"] * 0.9
-        log(f"생방송 녹화로 받은 방송이라 다시보기는 건너뜀: {v.get('videoTitle')}" if REPLAY_SEEN[no] else
-            f"녹화가 방송 일부만 담고 있어 다시보기도 받음 ({int(got // 60)}분 / {v['duration'] // 60}분): {v.get('videoTitle')}")
-    return REPLAY_SEEN[no]
+    live_url = f"https://chzzk.naver.com/live/{cid}"
+    if not q("SELECT 1 FROM jobs WHERE url=? AND live_open IS NOT NULL LIMIT 1", (live_url,)):
+        return False  # 이 채널 녹화가 없으면 상세 조회 안 함
+    try:
+        opened = replay_open(no)
+    except Exception:
+        return False
+    rec = q(f"SELECT filepath, meta, status, {CUT_SQL} AS cut FROM jobs WHERE url=? AND live_open=? AND status IN ('done','queued','downloading')", (live_url, opened))
+    if any(r["status"] != "done" for r in rec):  # 녹화 · 압축이 아직 안 끝남 → 이번엔 받지 않고 다음 확인 때 다시 판단
+        return True
+    if not rec:
+        return False
+    if any(r["cut"] for r in rec) and settings()["gap_fill"] == "1":  # 녹화가 끊겼던 방송 → 다시보기로 빈 곳 메움
+        GAP_OPEN[no] = opened
+        replay_note(no, False, f"녹화가 끊겼던 방송이라 다시보기도 받아 빈 곳을 메움: {v.get('videoTitle')}")
+        return False
+    # 녹화가 방송 전체를 담았을 때만 건너뜀. 늦게 발견했거나 끊겨서 빠진 구간이 있으면(다시보기의 90% 미만) 다시보기도 받음
+    got = sum(json.loads(r["meta"] or "{}").get("duration") or (probe_duration(r["filepath"]) if r["filepath"] and os.path.isfile(r["filepath"]) else 0)
+              for r in rec)
+    skip = not v.get("duration") or got >= v["duration"] * 0.9
+    replay_note(no, skip, f"생방송 녹화로 받은 방송이라 다시보기는 건너뜀: {v.get('videoTitle')}" if skip else
+                f"녹화가 방송 일부만 담고 있어 다시보기도 받음 ({int(got // 60)}분 / {v['duration'] // 60}분): {v.get('videoTitle')}")
+    return skip
 
 
 def show_dir(video_path):
@@ -1690,9 +1716,6 @@ def worker_step(slot, live):
             time.sleep(wait)
 
 
-GAP_CHECKED = set()  # 빈 곳 메우기로 이미 확인한 다시보기 번호
-
-
 def gap_replays(sub):
     """생방송만 구독(다시보기는 안 받음)한 치지직 채널: 최근 3일 안에 녹화가 끊겼던 방송이 있으면 그 방송의 다시보기만 찾아 받음 → 받은 개수"""
     cid = CHZZK_CH_RE.match(sub["url"].strip()).group(1)
@@ -1705,10 +1728,9 @@ def gap_replays(sub):
     added = 0
     for v in chzzk_api(f"/v1/channels/{cid}/videos?sortType=LATEST&pagingType=PAGE&page=0&size=10")["data"]:
         no = str(v["videoNo"])
-        if v.get("videoType") != "REPLAY" or no in GAP_CHECKED:
+        if v.get("videoType") != "REPLAY" or q("SELECT 1 FROM jobs WHERE video_id=?", (no,)):
             continue
-        GAP_CHECKED.add(no)
-        opened = chzzk_api(f"/v3/videos/{no}").get("liveOpenDate")
+        opened = replay_open(no)  # 방송 시작 시각은 기억 (예전엔 한 번 확인한 다시보기는 다시 안 봐서, 나중에 끊긴 녹화가 생겨도 못 메웠음)
         if opened in opens:
             added += add_entries([{"id": no, "url": f"https://chzzk.naver.com/video/{no}", "title": v.get("videoTitle"),
                                    "thumbnail": v.get("thumbnailImageUrl"), "duration": v.get("duration"), "open_date": opened}],
@@ -1736,7 +1758,8 @@ def check_sub(sub, s):
     for u in sub_urls(sub):
         try:
             # 재생목록은 보통 오래된 순이라 새 영상이 끝에 붙음 → 전체를 봄 (이미 있는 건 건너뜀). ponytail: 아주 긴 재생목록은 확인이 느림
-            found += enqueue(u, sub["id"], None if "list=" in u else int(s["sub_fetch_limit"]))[0]
+            # 새 구독 첫 확인(last_checked=0)은 사용자가 직접 한 것 → 지운 영상도 받음. '지금 확인'은 1 이라 지운 영상은 그대로 건너뜀
+            found += enqueue(u, sub["id"], None if "list=" in u else int(s["sub_fetch_limit"]), skip_removed=bool(sub["last_checked"]))[0]
         except Exception as e:
             if "does not have a" in str(e):  # 숏츠/라이브 탭이 없는 채널 → 정상
                 continue
@@ -1823,12 +1846,13 @@ def run_audit(s):
     started, res = time.time(), {"subs": [], "missing_added": 0, "gone": []}
     log("다운로드 점검 시작")
     try:
-        known = {r["video_id"] for r in q("SELECT video_id FROM jobs UNION SELECT video_id FROM removed")}  # 지운 영상은 '놓친 영상' 아님
+        removed = {r["video_id"] for r in q("SELECT video_id FROM removed")}
+        known = {r["video_id"] for r in q("SELECT video_id FROM jobs")} | removed  # 지운 영상은 '놓친 영상' 아님 (몇 개 건너뛰었는지는 표시)
         for sub in q("SELECT * FROM subs WHERE enabled=1 ORDER BY name"):
             if paused():
                 res["aborted"] = "유튜브 차단 신호로 유튜브 비교 중단"
                 break
-            r = {"name": sub["name"], "listed": 0, "missing": 0, "error": None}
+            r = {"name": sub["name"], "listed": 0, "missing": 0, "removed": 0, "error": None}
             for u in sub_urls(sub):
                 try:
                     entries, _, kind = list_entries(u, AUDIT_DEPTH)
@@ -1841,6 +1865,7 @@ def run_audit(s):
                     continue
                 miss = set(find_missing([e["id"] for e in entries], known, int(s["sub_fetch_limit"])))
                 r["listed"] += len(entries)
+                r["removed"] += sum(e["id"] in removed for e in entries)
                 r["missing"] += add_entries([e for e in entries if e["id"] in miss], kind, sub["id"])
                 res["gone"] += mark_source_gone(sub["id"], kind, {e["id"] for e in entries})
                 time.sleep(random.uniform(3, 8))  # 탭 사이 대기
@@ -2044,6 +2069,11 @@ async def lifespan(app):
     threading.Thread(target=backfill_nfo, daemon=True).start()
     log("시작됨")
     yield
+    # 종료(컨테이너 중지 · 서버 재부팅): 녹화 중인 ffmpeg 를 정상 종료('q') → 녹화분이 깔끔하게 저장되고 빨리 끝남
+    # (다음 시작 때 녹화분 보존 → 방송이 이어지면 새 조각으로). 예전엔 Docker 가 강제로 끝낼 때까지 기다렸음
+    for r in q("SELECT video_id FROM jobs WHERE status='downloading' AND live=1"):
+        stop_recording(r["video_id"])
+    log("종료")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -2291,6 +2321,7 @@ def merge_parts(jid: int, reencode: bool = False):
         raise HTTPException(409, "이미 합치는 중입니다 (끝나면 로그에 표시)")
     probes = [probe_streams(r["filepath"]) for r in rows]
     if len({tuple(p[0]) for p in probes}) == 1:
+        MERGING.add(rows[0]["id"])  # 예전엔 다시 압축할 때만 표시해, 버튼을 두 번 누르면 같은 조각을 동시에 합쳐 파일이 깨질 수 있었음
         return do_merge(rows, probes, False)
     if not reencode:
         raise HTTPException(409, "조각마다 영상 형식(코덱·해상도)이 달라 그대로는 이어 붙일 수 없습니다")
@@ -2456,8 +2487,16 @@ def delete_job(jid: int, files: bool = False):  # 목록에서 제거. files=1 �
 
 def forget(jid):
     """목록에서 지우고 '지운 영상'으로 기억 (구독 확인 · 점검이 다시 받지 않게)"""
-    q("INSERT OR REPLACE INTO removed(video_id, t) SELECT video_id, ? FROM jobs WHERE id=?", (time.time(), jid))
+    q("INSERT OR REPLACE INTO removed(video_id, t, sub_id) SELECT video_id, ?, sub_id FROM jobs WHERE id=?", (time.time(), jid))
     q("DELETE FROM jobs WHERE id=? AND status!='downloading'", (jid,))
+
+
+@app.post("/api/removed/clear")
+def clear_removed():
+    """지운 영상 기록 초기화 → 구독 확인 · 점검이 지웠던 영상도 다시 받음"""
+    n = len(q("DELETE FROM removed RETURNING video_id"))
+    log(f"지운 영상 기록 초기화: {n}개")
+    return {"cleared": n}
 
 
 @app.get("/api/subs")
@@ -2509,7 +2548,7 @@ def backfill(sub):
             continue
         try:
             entries, _, kind = list_entries(u)
-            total += add_entries(entries[::-1], kind, sub["id"])  # 대기열은 넣은 순서대로 → 오래된 영상부터
+            total += add_entries(entries[::-1], kind, sub["id"], skip_removed=False)  # 오래된 영상부터 · 사용자가 누른 것이라 지운 영상도
         except Exception as e:
             if "does not have a" not in str(e):  # 숏츠/라이브 탭이 없는 채널은 정상
                 log(f"기존 영상 가져오기 실패: {sub['name']} — {str(e)[:120]}")
@@ -2550,13 +2589,14 @@ def sub_pattern(sid: int):
 
 @app.post("/api/subs/check-all")
 def check_all():
-    q("UPDATE subs SET last_checked=0 WHERE enabled=1")  # 스케줄러가 채널 사이 간격을 두고 차례로 확인
+    q("UPDATE subs SET last_checked=1 WHERE enabled=1 AND last_checked > 0")  # 스케줄러가 채널 사이 간격을 두고 차례로 확인
+    # (1 = 바로 확인할 차례. 0 은 '새 구독 첫 확인'이라 지운 영상도 받으므로 쓰지 않음)
     WAKE.set()
 
 
 @app.post("/api/subs/{sid}/check")
 def check_now(sid: int):
-    q("UPDATE subs SET last_checked=0 WHERE id=?", (sid,))
+    q("UPDATE subs SET last_checked=1 WHERE id=? AND last_checked > 0", (sid,))  # 1 = 바로 확인할 차례 (0 = 새 구독 첫 확인 — 지운 영상도 받음)
     WAKE.set()
 
 
@@ -2571,6 +2611,7 @@ def delete_sub(sid: int):
     예전엔 '기존 영상 전부 받기'로 수백 개를 넣은 뒤 구독을 지워도 며칠 동안 계속 받았음"""
     n = len(q("DELETE FROM jobs WHERE sub_id=? AND status='queued' RETURNING id", (sid,)))
     q("DELETE FROM subs WHERE id=?", (sid,))
+    q("DELETE FROM removed WHERE sub_id=?", (sid,))  # 그 채널의 '지운 영상' 기억도 (다시 구독하면 처음처럼)
     if n:
         log(f"구독 삭제 → 대기 중이던 영상 {n}개도 대기열에서 뺌")
 
@@ -2688,22 +2729,35 @@ def status():
 
 @app.get("/api/audit")
 def audit():
-    rows = q("SELECT * FROM audits ORDER BY id DESC LIMIT 7")
+    """마지막 점검 결과. 화면이 상태 탭에서 2초마다 부름 → 최근 1개만, 고쳐진 것 빼기는 15초마다만 다시 계산
+    (예전엔 최근 7개를 통째로 보내고 매번 문제 파일을 하나씩 확인해, 영상이 많으면 응답에 3초 넘게 걸려 상태 화면이 굼떴음)"""
+    head = {"next": next_audit(audit_hours(settings())), "running": STATE.get("auditing", False)}
+    last = q("SELECT id FROM audits ORDER BY id DESC LIMIT 1")
+    key = last[0]["id"] if last else None
+    if (c := STATE.get("audit_cache")) and c[0] == key and time.time() - c[1] < 15:
+        return head | {"history": c[2]}
+    rows = q("SELECT * FROM audits ORDER BY id DESC LIMIT 1")
     for r in rows:
         r["result"] = json.loads(r["result"])
     if rows:  # 마지막 점검 뒤에 고쳐진 것(다시 받음·완료로 바뀜·목록에서 삭제)은 빼고 보여줌 (예전엔 다음 점검까지 그대로 남았음)
-        res, now = rows[0]["result"], {j["id"]: j for j in q("SELECT id, status, filepath FROM jobs")}
+        res = rows[0]["result"]
+        ids = {i["id"] for k in ("file_issues", "gave_up", "gone") for i in res.get(k) or []}
+        now = {j["id"]: j for j in q(f"SELECT id, status, filepath FROM jobs WHERE id IN ({','.join(map(str, ids)) or 0})")}
         res["file_issues"] = [i for i in res.get("file_issues", []) if (j := now.get(i["id"])) and j["status"] == "done"
                               and not (i["issue"].startswith("파일 없음") and j["filepath"] and os.path.isfile(j["filepath"]))]
         res["gave_up"] = [g for g in res.get("gave_up", []) if (now.get(g["id"]) or {}).get("status") == "error"]
         gone_now = {r["id"] for r in q("SELECT id FROM jobs WHERE json_extract(meta, '$.source_gone') IS NOT NULL")}
         res["gone"] = [g for g in res.get("gone", []) if g["id"] in gone_now]
-    return {"history": rows, "next": next_audit(audit_hours(settings())), "running": STATE.get("auditing", False)}
+        for k in ("file_issues", "gave_up", "gone"):  # 화면엔 300개까지만 (개수는 따로) — 수천 개를 2초마다 보내고 그리면 화면이 굼뜸
+            res[k + "_n"], res[k] = len(res.get(k) or []), (res.get(k) or [])[:300]
+    STATE["audit_cache"] = (key, time.time(), rows)
+    return head | {"history": rows}
 
 
 @app.post("/api/audit/run")
 def audit_now():  # 구독 확인 스레드가 바로 실행
     STATE["audit_now"] = True
+    STATE.pop("audit_cache", None)
     WAKE.set()
 
 

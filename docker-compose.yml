@@ -36,3 +36,5 @@ services:
     device_cgroup_rules:
       - "c 226:* rmw"
     restart: unless-stopped          # 필수: 웹 화면의 "재시작해서 업데이트"가 이걸로 다시 켜짐
+    init: true                       # 종료 신호를 치튜브에 제대로 전달 (재부팅 때 녹화를 정상 종료하고 빨리 끝남 · 남은 하위 프로그램 정리)
+    stop_grace_period: 30s           # 녹화 마무리할 시간 (그 뒤엔 강제 종료)
