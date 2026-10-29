@@ -237,7 +237,7 @@ Settings → YouTube / Chzzk tab → Quality. Pick a codec tab, then a preset. (
 
 Set separately in the **YouTube / Chzzk tabs** (e.g. YouTube compresses while downloading, Chzzk records live without compressing).
 
-- **Compression method**: **Compress while downloading** (default · no temp file) / Compress after download (keeps the original briefly)
+- **Compression method**: **Compress while downloading** (default · no temp file) / Compress after download (keeps the original briefly). Compressing while downloading only happens with a graphics card — on CPU alone the download would crawl at encoding speed (over a day for long streams) and the video URL tends to expire, so the original is downloaded first and compressed afterwards.
 - **Compress live streams while recording**: Off · compress after recording (default · most stable) / GPU, CPU when maxed out / GPU only
 - **Live streams compressed on the GPU at once** (Settings → Common; default: measured from your GPU at startup, or 3 if it can't be measured): the GPU has one encoder that's shared, so compressing too many streams at once makes all of them fall behind real time and stall. Streams above this number are **recorded as original and compressed after the stream ends**. While a stream is being compressed on the GPU, other compressions (after download · after recording · encode) move off the GPU to the CPU. Entry-level cards (e.g. RTX A400 · GTX 1650) handle about 2–3 1080p streams.
 - **Concurrent compressions**: how many after-download · after-recording · encode jobs run at once. Counted **separately from downloads**, so the next video downloads while compressing. Waiting videos show "Waiting to compress".

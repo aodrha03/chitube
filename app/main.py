@@ -181,7 +181,7 @@ LOG = collections.deque(maxlen=200)  # ponytail: 활동 기록은 메모리에�
 THREADS = {}
 STARTED = time.time()
 VERSIONS = {}
-APP_VERSION = "1.9.4"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
+APP_VERSION = "1.9.5"       # 수정할 때마다 올리고 CHANGELOG.md 에 릴리스 노트 추가
 UPDATE_CHECK_SEC = 12 * 3600  # yt-dlp/deno 최신 버전 확인 주기
 
 
@@ -582,6 +582,15 @@ NO_HW_WHY = {
 }
 
 
+def gpu_vendor():
+    """VAAPI 장치의 제조사 번호 (0x8086 = 인텔, 0x15ad = VMware 화면 장치 등). 모르면 빈 값"""
+    try:
+        with open(f"/sys/class/drm/{os.path.basename(VAAPI_DEV)}/device/vendor") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
 def detect_hw():
     """하드웨어 인코더를 작은 테스트 영상으로 실제 인코딩해 보고 되는 것만 기록 (드라이버/장치 없으면 실패 → CPU).
     인텔 퀵싱크는 VAAPI 로 사용 (데비안 ffmpeg 에 qsv 인코더가 없음, 같은 하드웨어)."""
@@ -598,6 +607,8 @@ def detect_hw():
                 HW.setdefault(hw, set()).add(codec)
             else:  # 실패 이유 (예: 드라이버가 너무 오래됨 "Driver does not support the required nvenc API version")
                 HW_WHY[hw] = (r.stderr.decode(errors="replace").strip().splitlines() or ["알 수 없음"])[-1][:200]
+                if hw == "vaapi" and gpu_vendor() not in ("0x8086", ""):  # ffmpeg 오류("Input/output error" 등)만으론 이유를 알 수 없음
+                    HW_WHY[hw] = f"{VAAPI_DEV} 는 인텔 그래픽이 아님 (가상 머신 화면 장치 · 다른 회사 그래픽카드) → CPU 로 압축"
     for hw in HW:
         HW_WHY.pop(hw, None)
     log("영상 인코딩 장치: " + (", ".join(f"{HW_NAME[h]}({'/'.join(sorted(c))})" for h, c in HW.items()) or "CPU 만 사용"))
@@ -1029,7 +1040,9 @@ def run_job(job, s, dl=None):
                 log(f"그래픽카드로 녹화하면서 압축 중인 생방송이 {s['gpu_live_max']}개라 원본으로 녹화 → 끝난 뒤 압축: {job['title']}")
                 tries = []
         else:
-            tries = ([hw0] + (["cpu"] if hw0 != "cpu" else [])) if s["codec"] != "none" and s["stream_compress"] == "1" else []
+            # 받으면서 압축은 그래픽카드로만: CPU 로 하면 받는 속도가 압축 속도에 묶임 (실측 4코어 제온: 11시간 다시보기를 30KB/s 로
+            # 하루 넘게 받음 → 그사이 영상 주소가 만료돼 실패하기 쉬움). CPU · 그래픽카드 실패 → 원본을 빨리 다 받고 압축 차례에 압축
+            tries = [hw0] if s["codec"] != "none" and s["stream_compress"] == "1" and hw0 != "cpu" else []
         def attempt(fmt, cookies):
             for t in tries + [None]:
                 try:

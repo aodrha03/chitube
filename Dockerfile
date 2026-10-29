@@ -19,6 +19,8 @@ COPY entrypoint.sh /entrypoint.sh
 # 윈도우에서 받거나 고친 파일은 줄 끝이 CRLF 라 sh 가 "Bad fd number" 로 멈춤 → LF 로 바꿔 둠
 RUN sed -i 's/\r$//' /entrypoint.sh
 COPY app/ .
-# tini: 크롬이 남기는 좀비 프로세스 정리
+# tini: 크롬이 남기는 좀비 프로세스 정리. compose 의 init: true 와 같이 쓰면 tini 가 1번 프로세스가 아니어서
+# "Zombie processes will not be re-parented" 경고가 나고 정리를 못 함 → 하위 정리 담당으로 등록
+ENV TINI_SUBREAPER=1
 ENTRYPOINT ["tini", "--"]
 CMD ["sh", "/entrypoint.sh"]

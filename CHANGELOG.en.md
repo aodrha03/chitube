@@ -4,6 +4,15 @@
 
 Versioning: major = big changes, minor = new features, patch = bug fixes only. The current version is shown next to the title in the web UI. The pre-release 0.x development history is only in the [Korean changelog](CHANGELOG.md).
 
+## v1.9.5 — 2026-10-29
+Found while testing recording, stop, restart, cancel and replays on a real server without a graphics card (Xeon 4 cores · Ubuntu 26.04 · VM).
+### Fixed
+- **Chzzk replays and video downloads were extremely slow on CPU-only servers** (measured: an 11 h replay at 30 KB/s, over a day to finish): "Compress while downloading" ran on the CPU, tying the download speed to the encoder, and the video URL tends to expire meanwhile. Compressing while downloading now only uses a graphics card; CPU-only servers download the original first (the same replay at 11 MB/s+) and compress it afterwards. A failed GPU attempt also falls back to this instead of CPU streaming.
+- **"Zombie processes will not be re-parented to Tini" warning at startup**: compose's `init: true` and the image's tini overlapped so leftover child processes weren't reaped → tini is registered as subreaper (applies after rebuilding).
+- **Intel Quick Sync unavailable reason showed only "Error parsing global options: Input/output error"**: when a VM display device (VMware etc.) shows up as /dev/dri → "not an Intel GPU (VM display device / other vendor) → compressing on CPU".
+### Verified (no problem)
+- Stop recording once → saved within 3 s · cancel pressed three times during a recording → recording kept · container restart during a recording → part kept, recording continues within 10 s · cancelling CPU compression, compress-while-downloading and aria2c replay downloads each takes one click and under 1 s · server-based defaults (4 cores → 1 concurrent compression, preset faster).
+
 ## v1.9.4 — 2026-10-29
 ### Added
 - **Download audit results per platform**: YouTube / Chzzk buttons above the results show the numbers (missed videos, files OK, retried, gave up) and lists (file problems, source gone, gave up, per channel) for each platform separately; your choice is remembered in this browser (they used to be mixed, making it hard to see where a problem was).
